@@ -902,3 +902,7 @@ void svg_close();
 /* syms.c */
 void define_font(char *name, int num, int enc);
 void define_symbols(void);
+/* chords.c */
+extern int generate_chords_output;
+void add_chords();
+void generate_chords_file();

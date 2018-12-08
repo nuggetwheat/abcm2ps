@@ -903,4 +903,7 @@ ignore:
 			"Line %d: Unexpected EOF in header definition\n",
 			linenum);
 	abc_eof();
+	if (generate_chords_output)
+	  generate_chords_file();
+
 }

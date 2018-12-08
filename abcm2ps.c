@@ -600,6 +600,9 @@ int main(int argc, char **argv)
 		}
 		while ((c = *++p) != '\0') {	/* '-xxx' */
 			switch (c) {
+			case 'C':
+			        generate_chords_output = 1;
+				break;
 			case 'E':
 				svg = 0;	/* EPS */
 				epsf = 1;
@@ -841,6 +844,7 @@ int main(int argc, char **argv)
 					cfmt.continueall = 1;
 					lock_fmt(&cfmt.continueall);
 					break;
+				case 'C':
 				case 'E':
 					break;
 				case 'f':

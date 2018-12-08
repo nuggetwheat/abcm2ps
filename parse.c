@@ -3651,6 +3651,9 @@ void do_tune(void)
 		info['X' - 'A'] = NULL;
 	}
 
+	if (generate_chords_output)
+	  add_chords();
+
 	/* free the parsing resources */
 	{
 		struct brk_s *brk, *brk2;

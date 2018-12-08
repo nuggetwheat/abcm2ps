@@ -26,7 +26,7 @@ build: abcm2ps abcm2ps.1
 # unix
 OBJECTS=abcm2ps.o \
 	abcparse.o buffer.o deco.o draw.o format.o front.o glyph.o music.o parse.o \
-	subs.o svg.o syms.o
+	subs.o svg.o syms.o chords.o
 abcm2ps: $(OBJECTS)
 
 $(OBJECTS): abcm2ps.h config.h Makefile
