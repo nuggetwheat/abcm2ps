@@ -96,7 +96,6 @@ void allocate_song() {
 void allocate_part() {
   if (cur_song == NULL)
     allocate_song();
-  cur_song->part_count++;
   struct CPart *part = allocate_bytes(sizeof(struct CPart));
   memset(part, 0, sizeof(*part));
   part->name = next_part++;
@@ -122,7 +121,6 @@ void allocate_meter() {
     log_message(2, "(a) Allocating part %c\n", next_part);
     allocate_part();
   }
-  cur_part->meter_count++;
   struct CMeter *meter = allocate_bytes(sizeof(struct CMeter));
   memset(meter, 0, sizeof(*meter));
   if (cur_meter == NULL)
@@ -181,6 +179,95 @@ void allocate_chord() {
   cur_chord = chord;
 }
 
+int equal_chords(struct CChord *left, struct CChord *right) {
+  return strcmp(left->name, right->name) == 0;
+}
+
+int equal_measures(struct CMeasure *left, struct CMeasure *right) {
+  if (left->duration != right->duration)
+    return 0;
+  struct CChord *left_chord = left->chords;
+  struct CChord *right_chord = right->chords;
+  while (left_chord != NULL && right_chord != NULL) {
+    if (equal_chords(left_chord, right_chord) == 0)
+      return 0;
+    left_chord = left_chord->next;
+    right_chord = right_chord->next;
+  }
+  return left_chord == right_chord;
+}
+
+int equal_meters(struct CMeter *left, struct CMeter *right) {
+  if (left->time_signature == NULL || right->time_signature == NULL) {
+    if (left->time_signature != right->time_signature)
+      return 0;
+  } else if (strcmp(left->time_signature, right->time_signature) != 0) {
+    return 0;
+  }
+  struct CMeasure *left_measure = left->measures;
+  struct CMeasure *right_measure = right->measures;
+  while (left_measure != NULL && right_measure != NULL) {
+    if (equal_measures(left_measure, right_measure) == 0)
+      return 0;
+    left_measure = left_measure->next;
+    right_measure = right_measure->next;
+  }
+  return left_measure == right_measure;
+}
+
+int equal_parts(struct CPart *left, struct CPart *right) {
+  if (left->name != right->name || left->repeat != right->repeat)
+    return 0;
+  struct CMeter *left_meter = left->meters;
+  struct CMeter *right_meter = right->meters;
+  while (left_meter != NULL && right_meter != NULL) {
+    if (equal_meters(left_meter, right_meter) == 0)
+      return 0;
+    left_meter = left_meter->next;
+    right_meter = right_meter->next;
+  }
+  if (left_meter != right_meter)
+    return 0;
+  // Compare endings
+  left_meter = left->endings;
+  right_meter = right->endings;
+  while (left_meter != NULL && right_meter != NULL) {
+    if (equal_meters(left_meter, right_meter) == 0)
+      return 0;
+    left_meter = left_meter->next;
+    right_meter = right_meter->next;
+  }
+  return left_meter == right_meter;
+
+}
+
+int equal_songs(struct CSong *left, struct CSong *right) {
+  if (strcmp(left->title, right->title) != 0 ||
+      left->key != right->key ||
+      left->accidental != right->accidental ||
+      left->minor != right->minor ||
+      left->mode != right->mode ||
+      left->time_signature_count != right->time_signature_count ||
+      strcmp(left->time_signature, right->time_signature) != 0)
+    return 0;
+  if (left->tempo == NULL || right->tempo == NULL) {
+    if (left->tempo != right->tempo)
+      return 0;
+  } else {
+    if (strcmp(left->tempo, right->tempo) != 0)
+      return 0;
+  }
+  struct CPart *left_part = left->parts;
+  struct CPart *right_part = right->parts;
+  while (left_part != NULL && right_part != NULL) {
+    if (equal_parts(left_part, right_part) == 0)
+      return 0;
+    left_part = left_part->next;
+    right_part = right_part->next;
+  }
+  return left_part == right_part;
+}
+
 void add_chord_to_measure() {
   if (cur_chord == NULL) {
     return;
@@ -196,7 +283,6 @@ void add_chord_to_measure() {
     cur_measure->last_chord->next = cur_chord;
     cur_measure->last_chord = cur_chord;
   }
-  cur_measure->chord_count++;
   cur_measure->duration += cur_chord->duration;
   log_message(2, "Added %s to measure %p (duration=%d)\n", cur_chord->name, (void *)cur_measure, cur_chord->duration);
   previous_chord = cur_chord;
@@ -333,6 +419,14 @@ const char *convert_sf_to_key(int sf) {
   return "?";
 }
 
+void set_key_and_accidentals(const char *text, struct CSong *song) {
+  song->key = text[0];
+  if (text[1] == 'b')
+    song->accidental = -1;
+  else if (text[1] == '#')
+    song->accidental = 1;
+}
+
 void set_key(struct SYMBOL *sym) {
   char *beginp = &sym->text[2];
   // skip leading whitespace
@@ -350,19 +444,17 @@ void set_key(struct SYMBOL *sym) {
   // Check for minor
   if (*(endp-1) == 'm' || strstr(endp, "minor")) {
     cur_song->minor = 1;
-    cur_song->key = beginp[0];
-    if (beginp[1] == 'b')
-      cur_song->accidental = -1;
-    else if (beginp[1] == '#')
-      cur_song->accidental = 1;
+    set_key_and_accidentals(beginp, cur_song);
+  } else if (strstr(endp, "mix")) {
+    cur_song->mode = 5;
+    set_key_and_accidentals(beginp, cur_song);
+  } else if (strstr(endp, "dor")) {
+    cur_song->mode = 2;
+    set_key_and_accidentals(beginp, cur_song);
   }
   else {
     const char *key = convert_sf_to_key(sym->u.key.sf);
-    cur_song->key = *key++;
-    if (*key == 'b')
-      cur_song->accidental = -1;
-    else if (*key == '#')
-      cur_song->accidental = 1;
+    set_key_and_accidentals(key, cur_song);
   }
 }
 
@@ -946,94 +1038,207 @@ struct CSongs {
   struct CSong **song;
 };
 
+int count_songs() {
+  int count = 0;
+  for (struct CSong *song = first_song; song != NULL; song = song->next) {
+    if (song_empty(song))
+      continue;
+    count++;
+  }
+  return count;
+}
+
 int compare_songs(const void *lhs, const void *rhs) {
   struct CSong *left = *(struct CSong **)lhs;
   struct CSong *right = *(struct CSong **)rhs;
   return strcmp(left->title, right->title);
 }
 
-void generate_chords_file() {
-
-  // Bucket songs by key
-  struct CSongs songs[42];
-
-  memset(songs, 0, 42*sizeof(struct CSongs));
-  for (struct CSong *song = first_song; song != NULL; song = song->next) {
-    if (song_empty(song))
-      continue;
-    int index = (song->key - 'A') * 6;
-    index += (song->accidental + 1) * 2;
-    if (song->minor)
-      index++;
-    if (songs[index].max == 0) {
-      songs[index].max = 32;
-      songs[index].song = malloc(songs[index].max * sizeof(struct CSong *));
-    } else if (songs[index].next == songs[index].max) {
-      songs[index].max *= 2;
-      struct CSong **save_songs = songs[index].song;
-      songs[index].song = malloc(songs[index].max * sizeof(struct CSong *));
-      memcpy(songs[index].song, save_songs, songs[index].next*sizeof(struct CSong *));
-    }
-    songs[index].song[songs[index].next++] = song;
-  }
-
-  chord_out = fopen("Chords.html", "w");
-
-  fprintf(chord_out, "<!DOCTYPE html>\n<html>\n<head>\n<style>\n");
-  fprintf(chord_out, "h2 { font-family: Courier; } p { font-family: Courier; }\n");
-  fprintf(chord_out, "</style>\n</head>\n<body>\n");
-
-  char key_buf[4];
-  for (char key = 'A'; key <= 'G'; key++) {
-    for (int accidental = -1; accidental < 2; accidental++) {
-      for (int minor = 0; minor < 2; minor++) {
-	int index = (key - 'A') * 6;
-	index += (accidental + 1) * 2;
-	index += minor;
-	if (songs[index].song) {
-	  qsort(songs[index].song, songs[index].next, sizeof(struct CSong *), compare_songs);
-	  char *ptr = key_buf;
-	  *ptr++ = key;
-	  if (accidental == -1)
-	    *ptr++ = 'b';
-	  else if (accidental == 1)
-	    *ptr++ = '#';
-	  if (minor)
-	    *ptr++ = 'm';
-	  *ptr = '\0';
-	  fprintf(chord_out, "<h2>Key of %s</h2>\n<p>\n", key_buf);
-	  for (int i=0; i<songs[index].next; i++) {
-	    struct CSong *song = songs[index].song[i];
-	    if (song->time_signature) {
-	      if (song->time_signature_count == 1) {
-		fprintf(chord_out, "<b>%s (%s)</b><br/>\n", song->title, song->time_signature);
-	      } else {
-		fprintf(chord_out, "<b>%s</b><br/>\n", song->title);
-	      }
-	    } else {
-	      fprintf(chord_out, "<b>%s</b><br/>\n", song->title);
-	    }
-	    for (struct CPart *part = song->parts; part != NULL; part = part->next) {
-	      if (empty_part(part))
-		continue;
-	      squash_identical_repeats(part);
-	      fprintf(chord_out, "<i>%c</i>&nbsp;", part->name);
-	      if (part->repeat) {
-		fprintf(chord_out, "|:");
-	      } else {
-		fprintf(chord_out, "&nbsp;&nbsp;");
-	      }
-	      print_meters(part);
-	      if (part->repeat && part->endings == NULL) {
-		fprintf(chord_out, ":|");
-	      }
-	      fprintf(chord_out, "<br/>\n");
-	    }
-	    fprintf(chord_out, "<br/>\n");
-	  }
+int compare_songs_by_key(const void *lhs, const void *rhs) {
+  struct CSong *left = *(struct CSong **)lhs;
+  struct CSong *right = *(struct CSong **)rhs;
+  if (left->key < right->key)
+    return -1;
+  else if (left->key == right->key) {
+    if (left->accidental < right->accidental)
+      return -1;
+    else if (left->accidental == right->accidental) {
+      if (left->mode < right->mode)
+	return -1;
+      else if (left->mode == right->mode) {
+	if (left->minor < right->minor)
+	  return -1;
+	else if (left->minor == right->minor) {
+	  return strcmp(left->title, right->title);
 	}
       }
     }
+  }
+  return 1;
+}
+
+int same_key(struct CSong *left, struct CSong *right) {
+  return left->key == right->key &&
+    left->accidental == right->accidental &&
+    left->mode == right->mode &&
+    left->minor == right->minor;
+}
+
+void print_index_key_heading(struct CSong *song) {
+  char key_buf[32];
+  char *ptr = key_buf;
+  *ptr++ = song->key;
+  if (song->accidental == -1) {
+    strcpy(ptr, "&#9837;");
+    ptr += strlen(ptr);
+  }
+  else if (song->accidental == 1) {
+    strcpy(ptr, "&#9839;");
+    ptr += strlen(ptr);
+  }
+  if (song->minor)
+    *ptr++ = 'm';
+  if (song->mode) {
+    *ptr = '\0';
+    if (song->mode == 2)
+      strcpy(ptr, " Dorian");
+    else if (song->mode == 5)
+      strcpy(ptr, " Mixolydian");
+    ptr += strlen(ptr);
+  }
+  *ptr = '\0';
+  fprintf(chord_out, "<b style=\"font-family: Arial\">%s</b><br/>\n", key_buf);
+}
+
+void print_index(struct CSong **original_songs, int max_song) {
+  struct CSong **songs = malloc(max_song * sizeof(struct CSong *));
+  memcpy(songs, original_songs, max_song * sizeof(struct CSong *));
+  qsort(songs, max_song, sizeof(struct CSong *), compare_songs_by_key);
+  int base = 0;
+  fprintf(chord_out, "<h2 style=\"font-family: Arial\">Tunes by Key</h2>\n");
+  int index = 0;
+  while (base < max_song) {
+    index = base + 1;
+    while (index < max_song && same_key(songs[index-1], songs[index])) {
+      index++;
+    }
+    print_index_key_heading(songs[base]);
+    int third = ((index - base) + 2) / 3;
+    int first = base + third;
+    int second = first + third;
+    fprintf(chord_out, "<div class=\"row\">\n");
+    fprintf(chord_out, "  <div class=\"column\">\n");
+    for (int i=base; i<first; i++) {
+      fprintf(chord_out, "    %s<br/>\n", songs[i]->title);
+    }
+    fprintf(chord_out, "  </div>\n");
+    if (first < index) {
+      fprintf(chord_out, "  <div class=\"column\">\n");
+      for (int i=first; i<second; i++) {
+	fprintf(chord_out, "    %s<br/>\n", songs[i]->title);
+      }
+      fprintf(chord_out, "  </div>\n");
+      if (second < index) {
+	fprintf(chord_out, "  <div class=\"column\">\n");
+	for (int i=second; i<index; i++) {
+	  fprintf(chord_out, "    %s<br/>\n", songs[i]->title);
+	}
+	fprintf(chord_out, "  </div>\n");
+      }
+    }
+    fprintf(chord_out, "</div>\n");
+    base = index;
+  }
+  free(songs);
+}
+
+struct CSong **dedup_songs(int *max) {
+  int max_song = count_songs();
+  struct CSong **songs = malloc(max_song * sizeof(struct CSong *));
+  int index = 0;
+  for (struct CSong *song = first_song; song != NULL; song = song->next) {
+    if (song_empty(song))
+      continue;
+    for (struct CPart *part = song->parts; part != NULL; part = part->next) {
+      if (empty_part(part))
+	continue;
+      squash_identical_repeats(part);
+    }
+    songs[index++] = song;
+  }
+  qsort(songs, index, sizeof(struct CSong *), compare_songs);
+  *max = 0;
+  int previous_song_index = 0;
+  for (index = 0; index < max_song; index++) {
+    if (index > 0 && equal_songs(songs[previous_song_index], songs[index]) != 0)
+      songs[index] = NULL;
+    else {
+      previous_song_index = index;
+      (*max)++;
+    }
+  }
+  struct CSong **old_songs = songs;
+  songs = malloc(*max * sizeof(struct CSong *));
+  int new_index = 0;
+  for (index = 0; index < max_song; index++) {
+    if (old_songs[index] != NULL)
+      songs[new_index++] = old_songs[index];
+  }
+  assert(new_index == *max);
+  free(old_songs);
+  return songs;
+}
+
+void generate_chords_file() {
+
+  int max_song;
+  struct CSong **songs = dedup_songs(&max_song);
+
+  chord_out = fopen("Chords.html", "w");
+
+  fprintf(chord_out, "<!DOCTYPE html>\n<html>\n<head>\n");
+  fprintf(chord_out, "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n");
+  fprintf(chord_out, "<style>\n");
+  fprintf(chord_out, "p { font-family: Courier; }\n");
+  fprintf(chord_out, "* { box-sizing: border-box; }\n");
+  fprintf(chord_out, ".column { float: left; width: 33.33%%; padding: 10px; font-family: Arial}\n");
+  fprintf(chord_out, ".row:after { content: \"\"; display: table;clear: both; }\n");
+  fprintf(chord_out, "</style>\n</head>\n<body>\n");
+
+  print_index(songs, max_song);
+
+  fprintf(chord_out, "<h2 style=\"font-family: Arial\">Alphabetical List of Tunes</h2>\n");
+  fprintf(chord_out, "<p style=\"font-family: Courier;\">\n");
+
+  for (int index = 0; index < max_song; index++) {
+    if (index > 0 && equal_songs(songs[index-1], songs[index]) != 0)
+      continue;
+    struct CSong *song = songs[index];
+    if (song->time_signature) {
+      if (song->time_signature_count == 1) {
+	fprintf(chord_out, "<b>%s (%s)</b><br/>\n", song->title, song->time_signature);
+      } else {
+	fprintf(chord_out, "<b>%s</b><br/>\n", song->title);
+      }
+    } else {
+      fprintf(chord_out, "<b>%s</b><br/>\n", song->title);
+    }
+    for (struct CPart *part = song->parts; part != NULL; part = part->next) {
+      if (empty_part(part))
+	continue;
+      fprintf(chord_out, "<i>%c</i>&nbsp;", part->name);
+      if (part->repeat) {
+	fprintf(chord_out, "|:");
+      } else {
+	fprintf(chord_out, "&nbsp;&nbsp;");
+      }
+      print_meters(part);
+      if (part->repeat && part->endings == NULL) {
+	fprintf(chord_out, ":|");
+      }
+      fprintf(chord_out, "<br/>\n");
+    }
+    fprintf(chord_out, "<br/>\n");
   }
   fprintf(chord_out, "</body>\n</html>\n");
 }

@@ -6,7 +6,6 @@ struct CChord {
 };
 
 struct CMeasure {
-  int chord_count;
   int duration;
   int leadin;
   struct CChord *chords;
@@ -24,7 +23,6 @@ struct CMeter {
 struct CPart {
   char name;
   int repeat;
-  int meter_count;
   struct CMeter *meters;
   struct CMeter *endings;
   struct CPart *next;
@@ -35,11 +33,11 @@ struct CSong {
   char key;
   int accidental;
   int minor;
+  int mode;
   char *time_signature;
   int time_signature_count;
   char *tempo;
   int index;
-  int part_count;
   struct CPart *parts;
   struct CSong *next;
 };
