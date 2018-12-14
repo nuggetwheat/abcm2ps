@@ -2,29 +2,29 @@
 struct CChord {
   char *name;
   int duration;
+  int broken_bar;
   struct CChord *next;
 };
 
 struct CMeasure {
   int duration;
   int leadin;
+  int finished;
+  char *time_signature;
   struct CChord *chords;
   struct CChord *last_chord;
   struct CMeasure *next;
 };
 
-struct CMeter {
-  char *time_signature;
-  struct CMeasure *measures;
-  struct CMeasure *last_measure;
-  struct CMeter *next;
-};
+#define MAX_ENDINGS 4
 
 struct CPart {
   char name;
   int repeat;
-  struct CMeter *meters;
-  struct CMeter *endings;
+  int next_ending;
+  struct CMeasure *measures;
+  struct CMeasure *last_measure;
+  struct CMeasure *endings[MAX_ENDINGS];
   struct CPart *next;
 };
 
@@ -35,8 +35,7 @@ struct CSong {
   int minor;
   int mode;
   char *time_signature;
-  int time_signature_count;
-  char *tempo;
+  int meter_change;
   int index;
   struct CPart *parts;
   struct CSong *next;

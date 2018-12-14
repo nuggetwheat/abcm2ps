@@ -25,17 +25,17 @@ int measure_duration = BASE_LEN;
 int skipping_voice = 0;
 int song_finished = 0;
 char primary_voice[64];
+char *next_time_signature = NULL;
 
 struct CSong *first_song = NULL;
 struct CSong *cur_song = NULL;
 struct CPart *cur_part = NULL;
-struct CMeter *cur_meter = NULL;
 struct CMeasure *cur_measure = NULL;
 struct CChord *cur_chord = NULL;
 struct CChord *previous_chord = NULL;
 struct CChord *previous_ending_chord = NULL;
 
-#define LOG_LEVEL 1
+#define LOG_LEVEL 2
 
 void log_message(int level, const char* fmt, ... ) {
   if (level <= LOG_LEVEL) {
@@ -49,11 +49,9 @@ void log_message(int level, const char* fmt, ... ) {
 int empty_part(struct CPart *part) {
   if (part == NULL)
     return 0;
-  for (struct CMeter *meter = part->meters; meter; meter = meter->next) {
-    for (struct CMeasure *measure = meter->measures; measure; measure = measure->next) {
-      if (measure->chords)
-	return 0;
-    }
+  for (struct CMeasure *measure = part->measures; measure; measure = measure->next) {
+    if (measure->chords)
+      return 0;
   }
   return 1;
 }
@@ -72,7 +70,6 @@ void allocate_song() {
     cur_song->next = song;
   cur_song = song;
   cur_part = NULL;
-  cur_meter = NULL;
   cur_measure = NULL;
   cur_chord = NULL;
   previous_chord = NULL;
@@ -91,6 +88,7 @@ void allocate_song() {
   skipping_voice = 0;
   primary_voice[0] = '\0';
   song_finished = 0;
+  next_time_signature = NULL;
 }
 
 void allocate_part() {
@@ -103,11 +101,10 @@ void allocate_part() {
     cur_song->parts = part;
   else {
     cur_part->next = part;
-    if (cur_part->endings)
+    if (cur_part->next_ending != 0)
       cur_part->repeat = 1;
   }
   cur_part = part;
-  cur_meter = NULL;
   cur_measure = NULL;
   previous_chord = NULL;
   cur_chord = NULL;
@@ -116,34 +113,27 @@ void allocate_part() {
   ending = 0;
 }
 
-void allocate_meter() {
+void allocate_measure() {
   if (cur_part == NULL) {
     log_message(2, "(a) Allocating part %c\n", next_part);
     allocate_part();
   }
-  struct CMeter *meter = allocate_bytes(sizeof(struct CMeter));
-  memset(meter, 0, sizeof(*meter));
-  if (cur_meter == NULL)
-    cur_part->meters = meter;
-  else
-    cur_meter->next = meter;
-  cur_meter = meter;
-  cur_measure = NULL;
-}
-
-void allocate_measure() {
-  if (cur_meter == NULL)
-    allocate_meter();
   if (cur_measure != NULL && cur_measure->chords == NULL)
     return;
   struct CMeasure *measure = allocate_bytes(sizeof(struct CMeasure));
   memset(measure, 0, sizeof(*measure));
-  if (cur_measure == NULL)
-    cur_meter->measures = measure;
-  else
+  if (cur_measure == NULL) {
+    cur_part->measures = measure;
+  }
+  else {
     cur_measure->next = measure;
+  }
   cur_measure = measure;
-  cur_meter->last_measure = measure;
+  cur_part->last_measure = measure;
+  if (next_time_signature != NULL) {
+    cur_measure->time_signature = next_time_signature;
+    next_time_signature = NULL;
+  }
 }
 
 void allocate_ending() {
@@ -151,21 +141,11 @@ void allocate_ending() {
     log_message(2, "(b) Allocating part %c\n", next_part);
     allocate_part();
   }
-  struct CMeter *meter = allocate_bytes(sizeof(struct CMeter));
-  memset(meter, 0, sizeof(*meter));
-  if (cur_part->endings == NULL) {
-    cur_part->endings = meter;
-  } else {
-    struct CMeter *mp = cur_part->endings;
-    while (mp->next != NULL) {
-      mp = mp->next;
-    }
-    mp->next = meter;
-  }
-  cur_meter = meter;
-  cur_meter->measures = allocate_bytes(sizeof(struct CMeasure));
-  memset(cur_meter->measures, 0, sizeof(struct CMeasure));
-  cur_measure = cur_meter->measures;
+  struct CMeasure *measure = allocate_bytes(sizeof(struct CMeasure));
+  memset(measure, 0, sizeof(struct CMeasure));
+  assert(cur_part->next_ending < MAX_ENDINGS);
+  cur_part->endings[cur_part->next_ending++] = measure;
+  cur_measure = measure;
   log_message(2, "(!) allocated measure %p\n", (void *)cur_measure);
   ending++;
   log_message(2, "Allocated ending %d\n", ending);
@@ -184,8 +164,12 @@ int equal_chords(struct CChord *left, struct CChord *right) {
 }
 
 int equal_measures(struct CMeasure *left, struct CMeasure *right) {
-  if (left->duration != right->duration)
+  if (left->time_signature == NULL || right->time_signature == NULL) {
+    if (left->time_signature != right->time_signature)
+      return 0;
+  } else if (strcmp(left->time_signature, right->time_signature) != 0) {
     return 0;
+  }
   struct CChord *left_chord = left->chords;
   struct CChord *right_chord = right->chords;
   while (left_chord != NULL && right_chord != NULL) {
@@ -197,13 +181,19 @@ int equal_measures(struct CMeasure *left, struct CMeasure *right) {
   return left_chord == right_chord;
 }
 
-int equal_meters(struct CMeter *left, struct CMeter *right) {
-  if (left->time_signature == NULL || right->time_signature == NULL) {
-    if (left->time_signature != right->time_signature)
+int equal_measure_sequence(struct CMeasure *left, struct CMeasure *right) {
+  while (left != NULL && right != NULL) {
+    if (equal_measures(left, right) == 0)
       return 0;
-  } else if (strcmp(left->time_signature, right->time_signature) != 0) {
-    return 0;
+    left = left->next;
+    right = right->next;
   }
+  return left == right;
+}
+
+int equal_parts(struct CPart *left, struct CPart *right) {
+  if (left->name != right->name || left->repeat != right->repeat)
+    return 0;
   struct CMeasure *left_measure = left->measures;
   struct CMeasure *right_measure = right->measures;
   while (left_measure != NULL && right_measure != NULL) {
@@ -212,33 +202,19 @@ int equal_meters(struct CMeter *left, struct CMeter *right) {
     left_measure = left_measure->next;
     right_measure = right_measure->next;
   }
-  return left_measure == right_measure;
-}
-
-int equal_parts(struct CPart *left, struct CPart *right) {
-  if (left->name != right->name || left->repeat != right->repeat)
-    return 0;
-  struct CMeter *left_meter = left->meters;
-  struct CMeter *right_meter = right->meters;
-  while (left_meter != NULL && right_meter != NULL) {
-    if (equal_meters(left_meter, right_meter) == 0)
-      return 0;
-    left_meter = left_meter->next;
-    right_meter = right_meter->next;
-  }
-  if (left_meter != right_meter)
+  if (left_measure != right_measure)
     return 0;
   // Compare endings
-  left_meter = left->endings;
-  right_meter = right->endings;
-  while (left_meter != NULL && right_meter != NULL) {
-    if (equal_meters(left_meter, right_meter) == 0)
+  for (int i=0; i<MAX_ENDINGS; i++) {
+    left_measure = left->endings[i];
+    right_measure = right->endings[i];
+    if ((left_measure == NULL || right_measure == NULL) &&
+	left_measure != right_measure)
       return 0;
-    left_meter = left_meter->next;
-    right_meter = right_meter->next;
+    if (equal_measure_sequence(left->endings[i], right->endings[i]) == 0)
+      return 0;
   }
-  return left_meter == right_meter;
-
+  return 1;
 }
 
 int equal_songs(struct CSong *left, struct CSong *right) {
@@ -247,16 +223,8 @@ int equal_songs(struct CSong *left, struct CSong *right) {
       left->accidental != right->accidental ||
       left->minor != right->minor ||
       left->mode != right->mode ||
-      left->time_signature_count != right->time_signature_count ||
       strcmp(left->time_signature, right->time_signature) != 0)
     return 0;
-  if (left->tempo == NULL || right->tempo == NULL) {
-    if (left->tempo != right->tempo)
-      return 0;
-  } else {
-    if (strcmp(left->tempo, right->tempo) != 0)
-      return 0;
-  }
   struct CPart *left_part = left->parts;
   struct CPart *right_part = right->parts;
   while (left_part != NULL && right_part != NULL) {
@@ -291,22 +259,11 @@ void add_chord_to_measure() {
 
 int song_empty(struct CSong *song) {
   for (struct CPart *part = song->parts; part != NULL; part = part->next) {
-    for (struct CMeter* meter = part->meters; meter != NULL; meter = meter->next) {
-      for (struct CMeasure *measure = meter->measures; measure != NULL; measure = measure->next) {
-	for (struct CChord *chord = measure->chords; chord != NULL; chord = chord->next) {
-	  return 0;
-	}
+    for (struct CMeasure *measure = part->measures; measure != NULL; measure = measure->next) {
+      for (struct CChord *chord = measure->chords; chord != NULL; chord = chord->next) {
+	return 0;
       }
     }    
-  }
-  return 1;
-}
-
-int meter_empty(struct CMeter *ending) {
-  for (struct CMeasure *measure = ending->measures; measure != NULL; measure = measure->next) {
-    for (struct CChord *chord = measure->chords; chord != NULL; chord = chord->next) {
-      return 0;
-    }
   }
   return 1;
 }
@@ -320,49 +277,41 @@ int measure_empty(struct CMeasure *measure) {
   return 1;
 }
 
+void strip_empty_measures(struct CMeasure **measurep) {
+  while (*measurep != NULL) {
+    if (measure_empty(*measurep)) {
+      *measurep = (*measurep)->next;
+    } else {
+      measurep = &(*measurep)->next;
+    }
+  }
+}
+
 void squash_identical_repeats(struct CPart *part) {
-  if (part->endings == NULL)
+  if (part->next_ending == 0)
     return;
   part->repeat = 1;
-  char base_buf[64];
-  memset(base_buf, 0, 64);
-  char *basep = base_buf;
-  struct CMeter *meter = part->endings;
-  for (struct CMeasure *measure = meter->measures; measure != NULL && !measure_empty(measure); measure = measure->next) {
-    *basep++ = '|';
-    for (struct CChord *chord = measure->chords; chord != NULL; chord = chord->next) {
-      sprintf(basep, "%s", chord->name);
-      basep += strlen(basep);
-    }
+
+  strip_empty_measures(&part->measures);
+  // reset last measure
+  part->last_measure = part->measures;
+  while (part->last_measure->next != NULL)
+    part->last_measure = part->last_measure->next;
+
+  for (int i=0; i<part->next_ending; i++) {
+    strip_empty_measures(&part->endings[i]);
   }
 
-  char compare_buf[64];
-  while (meter->next) {
-    meter = meter->next;
-    // Skip empty
-    if (meter_empty(meter))
+  for (int i=1; i<part->next_ending; i++) {
+    if (part->endings[i] == NULL)  // should be corrected above
       continue;
-    memset(compare_buf, 0, 64);
-    char *comparep = compare_buf;
-    for (struct CMeasure *measure = meter->measures; measure != NULL && !measure_empty(measure); measure = measure->next) {
-      *comparep++ = '|';
-      for (struct CChord *chord = measure->chords; chord != NULL; chord = chord->next) {
-	sprintf(comparep, "%s", chord->name);
-	comparep += strlen(comparep);
-      }
-    }
-    if (strcmp(base_buf, compare_buf))
+    if (equal_measure_sequence(part->endings[0], part->endings[i]) == 0) {
       return;
+    }
   }
-  meter = part->meters;
-  while (meter->next) {
-    meter = meter->next;
-  }
-  if (meter->last_measure) {
-    meter->last_measure->next = part->endings->measures;
-  }
-
-  part->endings = NULL;
+  part->last_measure->next = part->endings[0];
+  memset(part->endings, 0, MAX_ENDINGS*sizeof(struct CMeasure *));
+  part->next_ending = 0;
 }
 
 const char *bar_type(int type) {
@@ -539,7 +488,6 @@ const char *clean_chord(const char *text) {
       char tmp_buf[256];
       strncpy(tmp_buf, bufp+1, (textp-bufp)-1);
       tmp_buf[(textp-bufp)-1] = '\0';
-      //log_message(1, "Stripping %s\n", tmp_buf);
       bcopy(textp+1, bufp, strlen(textp+1));
       bufp[strlen(textp+1)] = '\0';
     }
@@ -628,7 +576,7 @@ void process_symbol(struct SYMBOL *sym) {
   if (sym == NULL)
     return;
 
-  log_message(2, "sym->abc_type = %s\n", abc_type(sym));
+  log_message(2, "sym->abc_type = %s, type=%d, sflags=0x%x\n", abc_type(sym), sym->type, sym->sflags);
 
   if (sym->abc_type == ABC_T_INFO) {
     if (sym->text != NULL) {
@@ -642,7 +590,6 @@ void process_symbol(struct SYMBOL *sym) {
 	    offset = 6;
 	  cur_song->title = allocate_bytes(strlen(sym->text));
 	  strcpy(cur_song->title, &sym->text[offset]);
-	  //log_message(1, "%s\n", cur_song->title);
 	}
       } else if (sym->text[0] == 'K') {
 	if (cur_song->key == '\0')
@@ -665,19 +612,28 @@ void process_symbol(struct SYMBOL *sym) {
 	  }
 	}
       } else if (sym->text[0] == 'M') {
-	allocate_meter();
+	if (cur_measure == NULL)
+	  allocate_measure();
 	char *time_signature = &sym->text[2];
 	if (!strcmp(time_signature, "C")) {
 	  time_signature = "4/4";
 	} else if (!strcmp(time_signature, "C|")) {
 	  time_signature = "2/2";
 	}
-	cur_meter->time_signature = allocate_bytes(strlen(time_signature)+1);
-	strcpy(cur_meter->time_signature, time_signature);
+	next_time_signature = allocate_bytes(strlen(time_signature)+1);
+	strcpy(next_time_signature, time_signature);
+	//log_message(2, "(ending=%d) Setting measure %p time signature to %p\n", ending, cur_measure, next_time_signature);
 	if (cur_song->time_signature == NULL) {
-	  cur_song->time_signature = cur_meter->time_signature;
+	  cur_song->time_signature = next_time_signature;
+	} else if (cur_song->meter_change == 0 &&
+		   strcmp(next_time_signature, cur_song->time_signature) != 0) {
+	  cur_song->meter_change = 1;
 	}
-	cur_song->time_signature_count++;
+	// If current measure is still being populated, add time signature
+	if (cur_measure != NULL && cur_measure->finished != 1) {
+	  cur_measure->time_signature = next_time_signature;
+	  next_time_signature = NULL;
+	}
 	int l1, l2;
 	if (sscanf(time_signature, "%d/%d ", &l1, &l2) == 2 &&
 	    l1 != 0 && l2 != 0) {
@@ -819,9 +775,12 @@ void process_symbol(struct SYMBOL *sym) {
 	// Leadin durtaion
 	int tmp_duration = cur_measure ? cur_measure->duration + cur_chord->duration : cur_chord->duration;
 	if (tmp_duration < measure_duration &&
-	    (previous_bar_type == 0 || ((sym->u.bar.type == B_SINGLE) && !ending && cur_measure != NULL))) {
+	    (previous_bar_type == 0 ||
+	     (sym->u.bar.type == B_SINGLE && sym->u.bar.dotted == 0 && !ending && cur_measure != NULL))) {
 	  leadin_duration = tmp_duration;
 	} else if (!skip_chord) {
+	  if (sym->u.bar.dotted)
+	    cur_chord->broken_bar = 1;
 	  log_message(2, "(b) Adding chord %s to measure %p\n",
 		      cur_chord->name, cur_measure);
 	  add_chord_to_measure();
@@ -846,10 +805,13 @@ void process_symbol(struct SYMBOL *sym) {
 	add_chord_to_measure();
       }
       duration = 0;
+      if (cur_measure != NULL)
+	cur_measure->finished = 1;
     }
     if (sym->u.bar.type != B_DOUBLE &&
 	sym->u.bar.type != B_THIN_THICK &&
 	sym->u.bar.type != B_RREP &&
+	sym->u.bar.dotted == '\0' &&
 	!measure_empty(cur_measure)) {
       allocate_measure();
       log_message(2, "(b) Allocated measure %p (bar = %s)\n", cur_measure, bar_type(sym->u.bar.type));
@@ -885,8 +847,6 @@ void process_symbol(struct SYMBOL *sym) {
       } else if (ending) {
 	log_message(2, "(c) new_part = 1\n");
 	new_part = 1;
-	log_message(2, "(b) cur_measure = NULL\n");
-	cur_measure = NULL;
 	previous_chord = NULL;
       } else {
 	log_message(2, "(d) new_part = 1\n");
@@ -911,27 +871,37 @@ const char *left_upper_square_bracket = "&#x23A1;";
 const char *right_upper_square_bracket = "&#x23A4;";
 
 
-void print_measures(struct CMeasure *measures, int measures_per_line, int compressed_whitespace, int *measures_printed) {
+void print_measures(struct CSong *song, struct CMeasure *measures, int measures_per_line, int compressed_whitespace, int *measures_printed) {
   for (struct CMeasure *measure = measures; measure != NULL; measure = measure->next) {
     if (measure->leadin)
       continue;
     if (*measures_printed == measures_per_line) {
       fprintf(chord_out, "\n<br/>&nbsp;&nbsp;&nbsp;&nbsp;");
       *measures_printed = 0;
+      if (measure->time_signature && song->meter_change) {
+	fprintf(chord_out, "<b>%s</b>&nbsp;&nbsp;", measure->time_signature);
+      }
+    } else if (measure->time_signature && song->meter_change) {
+      fprintf(chord_out, "&nbsp;&nbsp;<b>%s</b>&nbsp;&nbsp;", measure->time_signature);
     }
     char chord_buf[256];
     memset(chord_buf, 0, 256);
     char *buf = chord_buf;
     int first_chord = 1;
+    int next_bar_broken = 0;
     for (struct CChord *chord = measure->chords; chord != NULL; chord = chord->next) {
       if (first_chord == 0) {
 	//const char *clean = clean_chord(chord->name);
 	//log_message(1, "chord = '%s', clean=%s\n", chord->name, clean);
-	sprintf(buf, "|%s", chord->name);
+	if (next_bar_broken)
+	  sprintf(buf, "&#x00A6;%s", chord->name);
+	else
+	  sprintf(buf, "|%s", chord->name);
       } else {
 	sprintf(buf, "%s", chord->name);
 	first_chord = 0;
       }
+      next_bar_broken = chord->broken_bar ? 1 : 0;
       buf += strlen(buf);
     }
     int buf_len = strlen(chord_buf);
@@ -979,36 +949,31 @@ void print_measures(struct CMeasure *measures, int measures_per_line, int compre
   }
 }
 
-void print_endings(struct CPart *part) {
-  if (part->endings == NULL) {
+void print_endings(struct CSong *song, struct CPart *part) {
+  if (part->next_ending == 0) {
     return;
   }
   int num = 0;
   int measures_printed = 0;
-  struct CMeter* meter = part->endings;
   fprintf(chord_out, "%s<sup>%d</sup>", left_upper_square_bracket, ++num);
   // prevent wrapping (measures_per_line == 100)
-  print_measures(meter->measures, 100, 1, &measures_printed);
+  print_measures(song, part->endings[0], 100, 1, &measures_printed);
   fprintf(chord_out, "&nbsp;");
-  while (meter->next) {
-    meter = meter->next;
+  for (int i=1; i<part->next_ending; i++) {
     fprintf(chord_out, "%s<sup>%d</sup>", left_upper_square_bracket, ++num);
-    print_measures(meter->measures, 100, 1, &measures_printed);
+    print_measures(song, part->endings[i], 100, 1, &measures_printed);
   }
 }
 
-void print_meters(struct CPart *part) {
+void print_part(struct CSong *song, struct CPart *part) {
   int measure_count = 0;
-  int meter_count = 0;
-  for (struct CMeter* meter = part->meters; meter != NULL; meter = meter->next) {
-    for (struct CMeasure *measure = meter->measures; measure != NULL; measure = measure->next) {
-      measure_count++;
-    }
-    meter_count++;
+  for (struct CMeasure *measure = part->measures; measure != NULL; measure = measure->next) {
+    measure_count++;
   }
+  log_message(1, "measure_count = %d\n", measure_count);
   // Just count measures in one ending
-  if (part->endings) {
-    for (struct CMeasure *measure = part->endings->measures; measure != NULL; measure = measure->next) {
+  if (part->next_ending != 0) {
+    for (struct CMeasure *measure = part->endings[0]; measure != NULL; measure = measure->next) {
       measure_count++;
     }
   }
@@ -1018,18 +983,19 @@ void print_meters(struct CPart *part) {
   } else if (measure_count % 10 == 0) {
     measures_per_line = 10;
   }
-  struct CMeter* meter = part->meters;
   int measures_printed = 0;
+  /*
+  struct CMeter* meter = part->meters;
   while (meter != NULL) {
     if (meter_count > 1) {
       if (meter->time_signature != NULL) {
 	fprintf(chord_out, "&nbsp;&nbsp;<b>%s</b>&nbsp;&nbsp;", meter->time_signature);
       }
     }
-    print_measures(meter->measures, measures_per_line, 0, &measures_printed);
     meter = meter->next;
-  }
-  print_endings(part);
+    }*/
+  print_measures(song, part->measures, measures_per_line, 0, &measures_printed);
+  print_endings(song, part);
 }
 
 struct CSongs {
@@ -1215,7 +1181,7 @@ void generate_chords_file() {
       continue;
     struct CSong *song = songs[index];
     if (song->time_signature) {
-      if (song->time_signature_count == 1) {
+      if (song->meter_change == 0) {
 	fprintf(chord_out, "<b>%s (%s)</b><br/>\n", song->title, song->time_signature);
       } else {
 	fprintf(chord_out, "<b>%s</b><br/>\n", song->title);
@@ -1232,8 +1198,8 @@ void generate_chords_file() {
       } else {
 	fprintf(chord_out, "&nbsp;&nbsp;");
       }
-      print_meters(part);
-      if (part->repeat && part->endings == NULL) {
+      print_part(song, part);
+      if (part->repeat && part->next_ending == 0) {
 	fprintf(chord_out, ":|");
       }
       fprintf(chord_out, "<br/>\n");
