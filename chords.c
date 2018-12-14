@@ -96,7 +96,6 @@ void allocate_part() {
     allocate_song();
   struct CPart *part = allocate_bytes(sizeof(struct CPart));
   memset(part, 0, sizeof(*part));
-  part->name = next_part++;
   if (cur_part == NULL)
     cur_song->parts = part;
   else {
@@ -111,6 +110,15 @@ void allocate_part() {
   duration = 0;
   leadin_duration = 0;
   ending = 0;
+  if (next_part == 'a')
+    cur_part->name = next_part++;
+}
+
+void allocate_named_part() {
+  char next_part_name = next_part;
+  allocate_part();
+  if (next_part_name == next_part)
+    cur_part->name = next_part++;
 }
 
 void allocate_measure() {
@@ -645,7 +653,7 @@ void process_symbol(struct SYMBOL *sym) {
 	}
       } else if (sym->text[0] == 'P' && strcmp(sym->text, "P:W") && !empty_part(cur_part) && !ending) {
 	log_message(2, "(s) Allocating part %c\n", next_part);
-	allocate_part();
+	allocate_named_part();
       } else if (sym->text[0] == 'V') {
 	log_message(2, "Voice = '%s'\n", &sym->text[2]);
 	if (primary_voice[0] != '\0') {
@@ -1182,7 +1190,10 @@ void generate_chords_file() {
     for (struct CPart *part = song->parts; part != NULL; part = part->next) {
       if (empty_part(part))
 	continue;
-      fprintf(chord_out, "<i>%c</i>&nbsp;", part->name);
+      if (part->name)
+	fprintf(chord_out, "<i>%c</i>&nbsp;", part->name);
+      else
+	fprintf(chord_out, "&nbsp;&nbsp;");
       if (part->repeat) {
 	fprintf(chord_out, "|:");
       } else {
