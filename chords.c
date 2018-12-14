@@ -1048,9 +1048,8 @@ int same_key(struct CSong *left, struct CSong *right) {
     left->minor == right->minor;
 }
 
-void print_index_key_heading(struct CSong *song) {
-  char key_buf[32];
-  char *ptr = key_buf;
+void write_key_to_string(struct CSong *song, char *buf) {
+  char *ptr = buf;
   *ptr++ = song->key;
   if (song->accidental == -1) {
     strcpy(ptr, "&#9837;");
@@ -1071,7 +1070,12 @@ void print_index_key_heading(struct CSong *song) {
     ptr += strlen(ptr);
   }
   *ptr = '\0';
-  fprintf(chord_out, "<b style=\"font-family: Arial\">%s</b><br/>\n", key_buf);
+}
+
+void print_index_key_heading(struct CSong *song) {
+  char key_buf[32];
+  write_key_to_string(song, key_buf);
+  fprintf(chord_out, "<h4 style=\"font-family: Arial\">%s</h4>\n", key_buf);
 }
 
 void print_index(struct CSong **original_songs, int max_song) {
@@ -1163,29 +1167,29 @@ void generate_chords_file() {
   fprintf(chord_out, "<!DOCTYPE html>\n<html>\n<head>\n");
   fprintf(chord_out, "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n");
   fprintf(chord_out, "<style>\n");
-  fprintf(chord_out, "p { font-family: Courier; }\n");
   fprintf(chord_out, "* { box-sizing: border-box; }\n");
+  fprintf(chord_out, ".fixed { font-family: Courier; }\n");
   fprintf(chord_out, ".column { float: left; width: 33.33%%; padding: 10px; font-family: Arial}\n");
   fprintf(chord_out, ".row:after { content: \"\"; display: table;clear: both; }\n");
   fprintf(chord_out, "</style>\n</head>\n<body>\n");
 
+  fprintf(chord_out, "<div style=style=\"font-family: Arial\">\n");
   print_index(songs, max_song);
+  fprintf(chord_out, "</div>\n");  
 
   fprintf(chord_out, "<h2 style=\"font-family: Arial\">Alphabetical List of Tunes</h2>\n");
-  fprintf(chord_out, "<p style=\"font-family: Courier;\">\n");
+  fprintf(chord_out, "<div class=\"fixed\">\n");
 
   for (int index = 0; index < max_song; index++) {
     if (index > 0 && equal_songs(songs[index-1], songs[index]) != 0)
       continue;
     struct CSong *song = songs[index];
-    if (song->time_signature) {
-      if (song->meter_change == 0) {
-	fprintf(chord_out, "<b>%s (%s)</b><br/>\n", song->title, song->time_signature);
-      } else {
-	fprintf(chord_out, "<b>%s</b><br/>\n", song->title);
-      }
+    char key[32];
+    write_key_to_string(song, key);
+    if (song->time_signature && song->meter_change == 0) {
+      fprintf(chord_out, "<h4>%s (%s %s)</h4>\n", song->title, key, song->time_signature);
     } else {
-      fprintf(chord_out, "<b>%s</b><br/>\n", song->title);
+      fprintf(chord_out, "<h4>%s (%s)</h4>\n", song->title, key);
     }
     for (struct CPart *part = song->parts; part != NULL; part = part->next) {
       if (empty_part(part))
@@ -1207,5 +1211,6 @@ void generate_chords_file() {
     }
     fprintf(chord_out, "<br/>\n");
   }
+  fprintf(chord_out, "</div>\n");
   fprintf(chord_out, "</body>\n</html>\n");
 }
