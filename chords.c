@@ -10,7 +10,7 @@
 char bar_buf[8];
 int duration = 0;
 int leadin_duration = 0;
-char next_part = 'A';
+char next_part = 'a';
 int unit_note_length = -1;
 int meter_note_length = -1;
 int new_part = 0;
@@ -73,7 +73,7 @@ void allocate_song() {
   cur_measure = NULL;
   cur_chord = NULL;
   previous_chord = NULL;
-  next_part = 'A';
+  next_part = 'a';
   unit_note_length = -1;
   meter_note_length = -1;
   l_divisor = 0;
@@ -984,16 +984,6 @@ void print_part(struct CSong *song, struct CPart *part) {
     measures_per_line = 10;
   }
   int measures_printed = 0;
-  /*
-  struct CMeter* meter = part->meters;
-  while (meter != NULL) {
-    if (meter_count > 1) {
-      if (meter->time_signature != NULL) {
-	fprintf(chord_out, "&nbsp;&nbsp;<b>%s</b>&nbsp;&nbsp;", meter->time_signature);
-      }
-    }
-    meter = meter->next;
-    }*/
   print_measures(song, part->measures, measures_per_line, 0, &measures_printed);
   print_endings(song, part);
 }
