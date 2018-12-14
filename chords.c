@@ -986,11 +986,13 @@ void print_part(struct CSong *song, struct CPart *part) {
     }
   }
   int measures_per_line = 8;
+  /*
   if (measure_count <= 10) {
     measures_per_line = measure_count > 8 ? measure_count : 8;
   } else if (measure_count % 10 == 0) {
     measures_per_line = 10;
   }
+  */
   int measures_printed = 0;
   print_measures(song, part->measures, measures_per_line, 0, &measures_printed);
   print_endings(song, part);
