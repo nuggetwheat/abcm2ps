@@ -1171,6 +1171,12 @@ struct CSong **dedup_songs(int *max) {
   return songs;
 }
 
+int skip_part(struct CPart *part) {
+  return empty_part(part) ||
+    (part->measures->next == NULL && part->next_ending == 0);
+}
+
+
 void generate_chords_file() {
 
   int max_song;
@@ -1206,7 +1212,7 @@ void generate_chords_file() {
       fprintf(chord_out, "<h4>%s (%s)</h4>\n", song->title, key);
     }
     for (struct CPart *part = song->parts; part != NULL; part = part->next) {
-      if (empty_part(part))
+      if (skip_part(part))
 	continue;
       if (part->name)
 	fprintf(chord_out, "<i>%c</i>&nbsp;", part->name);
