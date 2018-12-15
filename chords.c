@@ -878,6 +878,41 @@ void add_chords() {
 const char *left_upper_square_bracket = "&#x23A1;";
 const char *right_upper_square_bracket = "&#x23A4;";
 
+void print_chord(char *chord_buf, int compressed_whitespace, int bold) {
+  int buf_len = strlen(chord_buf);
+  char *bold_start = bold ? "<b>" : "";
+  char *bold_end = bold ? "</b>" : "";
+  // Check for Unicode char
+  if (buf_len > 8 && strstr(chord_buf, "&#x")) {
+    buf_len -= 8;
+  }
+  if (compressed_whitespace) {
+    fprintf(chord_out, "&nbsp;%s%s%s", bold_start, chord_buf, bold_end);
+  } else {
+    switch (buf_len) {
+    case (0):
+      break;
+    case (1):
+      fprintf(chord_out, "&nbsp;&nbsp;&nbsp;%s%s%s&nbsp;&nbsp;&nbsp;", bold_start, chord_buf, bold_end);
+      break;
+    case (2):
+      fprintf(chord_out, "&nbsp;&nbsp;&nbsp;%s%s%s&nbsp;&nbsp;", bold_start, chord_buf, bold_end);
+      break;
+    case (3):
+      fprintf(chord_out, "&nbsp;&nbsp;%s%s%s&nbsp;&nbsp;", bold_start, chord_buf, bold_end);
+      break;
+    case (4):
+      fprintf(chord_out, "&nbsp;&nbsp;%s%s%s&nbsp;", bold_start, chord_buf, bold_end);
+      break;
+    case (5):
+      fprintf(chord_out, "&nbsp;%s%s%s&nbsp;", bold_start, chord_buf, bold_end);
+      break;
+    default:
+      fprintf(chord_out, "%s%s%s&nbsp;", bold_start, chord_buf, bold_end);
+      break;
+    }
+  }
+}
 
 void print_measures(struct CSong *song, struct CMeasure *measures, int measures_per_line, int compressed_whitespace, int *measures_printed) {
   for (struct CMeasure *measure = measures; measure != NULL; measure = measure->next) {
@@ -886,11 +921,15 @@ void print_measures(struct CSong *song, struct CMeasure *measures, int measures_
     if (*measures_printed == measures_per_line) {
       fprintf(chord_out, "\n<br/>&nbsp;&nbsp;&nbsp;&nbsp;");
       *measures_printed = 0;
-      if (measure->time_signature && song->meter_change) {
-	fprintf(chord_out, "<b>%s</b>&nbsp;&nbsp;", measure->time_signature);
+    }
+    // Maybe print time signature
+    if (measure->time_signature && song->meter_change) {
+      print_chord(measure->time_signature, compressed_whitespace, 1);
+      (*measures_printed)++;
+      if (*measures_printed == measures_per_line) {
+	fprintf(chord_out, "\n<br/>&nbsp;&nbsp;&nbsp;&nbsp;");
+	*measures_printed = 0;
       }
-    } else if (measure->time_signature && song->meter_change) {
-      fprintf(chord_out, "&nbsp;&nbsp;<b>%s</b>&nbsp;&nbsp;", measure->time_signature);
     }
     char chord_buf[256];
     memset(chord_buf, 0, 256);
@@ -899,8 +938,6 @@ void print_measures(struct CSong *song, struct CMeasure *measures, int measures_
     int next_bar_broken = 0;
     for (struct CChord *chord = measure->chords; chord != NULL; chord = chord->next) {
       if (first_chord == 0) {
-	//const char *clean = clean_chord(chord->name);
-	//log_message(1, "chord = '%s', clean=%s\n", chord->name, clean);
 	if (next_bar_broken)
 	  sprintf(buf, "&#x00A6;%s", chord->name);
 	else
@@ -919,40 +956,10 @@ void print_measures(struct CSong *song, struct CMeasure *measures, int measures_
       if (chord_buf[mid] == '|') {
 	if (!strncmp(chord_buf, &chord_buf[mid+1], mid)) {
 	  chord_buf[mid] = '\0';
-	  buf_len = strlen(chord_buf);
 	}
       }
     }
-    // Check for Unicode char
-    if (buf_len > 8 && strstr(chord_buf, "&#x")) {
-      buf_len -= 8;
-    }
-    if (compressed_whitespace) {
-      fprintf(chord_out, "&nbsp;%s", chord_buf);
-    } else {
-      switch (buf_len) {
-      case (0):
-	break;
-      case (1):
-	fprintf(chord_out, "&nbsp;&nbsp;&nbsp;%s&nbsp;&nbsp;&nbsp;", chord_buf);
-	break;
-      case (2):
-	fprintf(chord_out, "&nbsp;&nbsp;&nbsp;%s&nbsp;&nbsp;", chord_buf);
-	break;
-      case (3):
-	fprintf(chord_out, "&nbsp;&nbsp;%s&nbsp;&nbsp;", chord_buf);
-	break;
-      case (4):
-	fprintf(chord_out, "&nbsp;&nbsp;%s&nbsp;", chord_buf);
-	break;
-      case (5):
-	fprintf(chord_out, "&nbsp;%s&nbsp;", chord_buf);
-	break;
-      default:
-	fprintf(chord_out, "%s&nbsp;", chord_buf);
-	break;
-      }
-    }
+    print_chord(chord_buf, compressed_whitespace, 0);
     (*measures_printed)++;
   }
 }
@@ -978,7 +985,6 @@ void print_part(struct CSong *song, struct CPart *part) {
   for (struct CMeasure *measure = part->measures; measure != NULL; measure = measure->next) {
     measure_count++;
   }
-  log_message(1, "measure_count = %d\n", measure_count);
   // Just count measures in one ending
   if (part->next_ending != 0) {
     for (struct CMeasure *measure = part->endings[0]; measure != NULL; measure = measure->next) {
@@ -1175,7 +1181,7 @@ void generate_chords_file() {
   fprintf(chord_out, ".row:after { content: \"\"; display: table;clear: both; }\n");
   fprintf(chord_out, "</style>\n</head>\n<body>\n");
 
-  fprintf(chord_out, "<div style=style=\"font-family: Arial\">\n");
+  fprintf(chord_out, "<div style=\"font-family: Arial\">\n");
   print_index(songs, max_song);
   fprintf(chord_out, "</div>\n");  
 
