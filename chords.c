@@ -918,7 +918,8 @@ void print_measures(struct CSong *song, struct CMeasure *measures, int measures_
   for (struct CMeasure *measure = measures; measure != NULL; measure = measure->next) {
     if (measure->leadin)
       continue;
-    if (*measures_printed == measures_per_line) {
+    int skip_newline = song->meter_change && measure->next == NULL;
+    if (*measures_printed == measures_per_line && skip_newline == 0) {
       fprintf(chord_out, "\n<br/>&nbsp;&nbsp;&nbsp;&nbsp;");
       *measures_printed = 0;
     }
@@ -926,7 +927,7 @@ void print_measures(struct CSong *song, struct CMeasure *measures, int measures_
     if (measure->time_signature && song->meter_change) {
       print_chord(measure->time_signature, compressed_whitespace, 1);
       (*measures_printed)++;
-      if (*measures_printed == measures_per_line) {
+      if (*measures_printed == measures_per_line && skip_newline == 0) {
 	fprintf(chord_out, "\n<br/>&nbsp;&nbsp;&nbsp;&nbsp;");
 	*measures_printed = 0;
       }
@@ -962,6 +963,8 @@ void print_measures(struct CSong *song, struct CMeasure *measures, int measures_
     print_chord(chord_buf, compressed_whitespace, 0);
     (*measures_printed)++;
   }
+  if (*measures_printed > measures_per_line)
+    *measures_printed = measures_per_line;
 }
 
 void print_endings(struct CSong *song, struct CPart *part) {
@@ -973,9 +976,8 @@ void print_endings(struct CSong *song, struct CPart *part) {
   fprintf(chord_out, "%s<sup>%d</sup>", left_upper_square_bracket, ++num);
   // prevent wrapping (measures_per_line == 100)
   print_measures(song, part->endings[0], 100, 1, &measures_printed);
-  fprintf(chord_out, "&nbsp;");
   for (int i=1; i<part->next_ending; i++) {
-    fprintf(chord_out, "%s<sup>%d</sup>", left_upper_square_bracket, ++num);
+    fprintf(chord_out, "&nbsp;&nbsp;%s<sup>%d</sup>", left_upper_square_bracket, ++num);
     print_measures(song, part->endings[i], 100, 1, &measures_printed);
   }
 }
@@ -992,15 +994,19 @@ void print_part(struct CSong *song, struct CPart *part) {
     }
   }
   int measures_per_line = 8;
-  /*
-  if (measure_count <= 10) {
-    measures_per_line = measure_count > 8 ? measure_count : 8;
-  } else if (measure_count % 10 == 0) {
-    measures_per_line = 10;
+  if (song->meter_change == 0) {
+    if (measure_count <= 10) {
+      measures_per_line = measure_count > 8 ? measure_count : 8;
+    } else if (measure_count % 10 == 0) {
+      measures_per_line = 10;
+    }
   }
-  */
   int measures_printed = 0;
   print_measures(song, part->measures, measures_per_line, 0, &measures_printed);
+  if (measures_printed == measures_per_line && part->next_ending > 0) {
+    fprintf(chord_out, "\n<br/>&nbsp;&nbsp;&nbsp;&nbsp;");
+    measures_printed = 0;
+  }
   print_endings(song, part);
 }
 
