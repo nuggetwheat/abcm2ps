@@ -591,85 +591,89 @@ void process_symbol(struct SYMBOL *sym) {
       if (sym->text[0] == 'X') {
 	allocate_song();
 	cur_song->index = (int)strtol(&sym->text[2], NULL, 0);
-      } else if (sym->text[0] == 'T') {
-	if (cur_song->title == NULL) {
-	  int offset = 2;
-	  if (!strncasecmp(&sym->text[2], "The ", 4))
-	    offset = 6;
-	  cur_song->title = allocate_bytes(strlen(sym->text));
-	  strcpy(cur_song->title, &sym->text[offset]);
-	}
-      } else if (sym->text[0] == 'K') {
-	if (cur_song->key == '\0')
-	  set_key(sym);
-      } else if (sym->text[0] == 'L') {
-	int l1, l2;
-	const char *p = &sym->text[2];
-	if (sscanf(p, "%d/%d ", &l1, &l2) == 2) {
-	  if (l2 == 16) {
-	    l_divisor = 2;
-	  } else if (l2 == 32) {
-	    l_divisor = 4;
-	  } else {
-	    l_divisor = 1;
+      } else {
+	if (song_finished)
+	  return;
+	if (sym->text[0] == 'T') {
+	  if (cur_song->title == NULL) {
+	    int offset = 2;
+	    if (!strncasecmp(&sym->text[2], "The ", 4))
+	      offset = 6;
+	    cur_song->title = allocate_bytes(strlen(sym->text));
+	    strcpy(cur_song->title, &sym->text[offset]);
 	  }
-	  if (meter_num) {
-	    measure_duration = ((BASE_LEN * meter_num) / meter_denom) / l_divisor;
-	  } else {
-	    measure_duration = BASE_LEN / l_divisor;
+	} else if (sym->text[0] == 'K') {
+	  if (cur_song->key == '\0')
+	    set_key(sym);
+	} else if (sym->text[0] == 'L') {
+	  int l1, l2;
+	  const char *p = &sym->text[2];
+	  if (sscanf(p, "%d/%d ", &l1, &l2) == 2) {
+	    if (l2 == 16) {
+	      l_divisor = 2;
+	    } else if (l2 == 32) {
+	      l_divisor = 4;
+	    } else {
+	      l_divisor = 1;
+	    }
+	    if (meter_num) {
+	      measure_duration = ((BASE_LEN * meter_num) / meter_denom) / l_divisor;
+	    } else {
+	      measure_duration = BASE_LEN / l_divisor;
+	    }
 	  }
-	}
-      } else if (sym->text[0] == 'M') {
-	if (cur_measure == NULL)
-	  allocate_measure();
-	char *time_signature = &sym->text[2];
-	if (!strcmp(time_signature, "C")) {
-	  time_signature = "4/4";
-	} else if (!strcmp(time_signature, "C|")) {
-	  time_signature = "2/2";
-	}
-	next_time_signature = allocate_bytes(strlen(time_signature)+1);
-	strcpy(next_time_signature, time_signature);
-	//log_message(2, "(ending=%d) Setting measure %p time signature to %p\n", ending, cur_measure, next_time_signature);
-	if (cur_song->time_signature == NULL) {
-	  cur_song->time_signature = next_time_signature;
-	} else if (cur_song->meter_change == 0 &&
-		   strcmp(next_time_signature, cur_song->time_signature) != 0) {
-	  cur_song->meter_change = 1;
-	}
-	// If current measure is still being populated, add time signature
-	if (cur_measure != NULL && cur_measure->finished != 1) {
-	  cur_measure->time_signature = next_time_signature;
-	  next_time_signature = NULL;
-	}
-	int l1, l2;
-	if (sscanf(time_signature, "%d/%d ", &l1, &l2) == 2 &&
-	    l1 != 0 && l2 != 0) {
-	  meter_num = l1;
-	  meter_denom = l2;
-	  measure_duration = (BASE_LEN * meter_num) / meter_denom;
-	  if (l_divisor > 1)
-	    measure_duration /= l_divisor;
-	}
-      } else if (sym->text[0] == 'P' && strcmp(sym->text, "P:W") && !empty_part(cur_part) && !ending) {
-	log_message(2, "(s) Allocating part %c\n", next_part);
-	allocate_named_part();
-      } else if (sym->text[0] == 'V') {
-	log_message(2, "Voice = '%s'\n", &sym->text[2]);
-	if (primary_voice[0] != '\0') {
-	  if (!strcmp(&sym->text[2], primary_voice)) {
-	    skipping_voice = 0;
-	  } else {
-	    skipping_voice = 1;
+	} else if (sym->text[0] == 'M') {
+	  if (cur_measure == NULL)
+	    allocate_measure();
+	  char *time_signature = &sym->text[2];
+	  if (!strcmp(time_signature, "C")) {
+	    time_signature = "4/4";
+	  } else if (!strcmp(time_signature, "C|")) {
+	    time_signature = "2/2";
 	  }
-	} else {
-	  char *vptr = &sym->text[2];
-	  while (*vptr && !isspace(*vptr))
-	    vptr++;
-	  int len = (vptr - sym->text) - 2;
-	  strncpy(primary_voice, &sym->text[2], (vptr - sym->text) - 2);
-	  primary_voice[len] = '\0';
-	  log_message(2, "Primary Voice = '%s'\n", primary_voice);
+	  next_time_signature = allocate_bytes(strlen(time_signature)+1);
+	  strcpy(next_time_signature, time_signature);
+	  //log_message(2, "(ending=%d) Setting measure %p time signature to %p\n", ending, cur_measure, next_time_signature);
+	  if (cur_song->time_signature == NULL) {
+	    cur_song->time_signature = next_time_signature;
+	  } else if (cur_song->meter_change == 0 &&
+		     strcmp(next_time_signature, cur_song->time_signature) != 0) {
+	    cur_song->meter_change = 1;
+	  }
+	  // If current measure is still being populated, add time signature
+	  if (cur_measure != NULL && cur_measure->finished != 1) {
+	    cur_measure->time_signature = next_time_signature;
+	    next_time_signature = NULL;
+	  }
+	  int l1, l2;
+	  if (sscanf(time_signature, "%d/%d ", &l1, &l2) == 2 &&
+	      l1 != 0 && l2 != 0) {
+	    meter_num = l1;
+	    meter_denom = l2;
+	    measure_duration = (BASE_LEN * meter_num) / meter_denom;
+	    if (l_divisor > 1)
+	      measure_duration /= l_divisor;
+	  }
+	} else if (sym->text[0] == 'P' && strcmp(sym->text, "P:W") && !empty_part(cur_part) && !ending) {
+	  log_message(2, "(s) Allocating part %c\n", next_part);
+	  allocate_named_part();
+	} else if (sym->text[0] == 'V') {
+	  log_message(2, "Voice = '%s'\n", &sym->text[2]);
+	  if (primary_voice[0] != '\0') {
+	    if (!strcmp(&sym->text[2], primary_voice)) {
+	      skipping_voice = 0;
+	    } else {
+	      skipping_voice = 1;
+	    }
+	  } else {
+	    char *vptr = &sym->text[2];
+	    while (*vptr && !isspace(*vptr))
+	      vptr++;
+	    int len = (vptr - sym->text) - 2;
+	    strncpy(primary_voice, &sym->text[2], (vptr - sym->text) - 2);
+	    primary_voice[len] = '\0';
+	    log_message(2, "Primary Voice = '%s'\n", primary_voice);
+	  }
 	}
       }
     }
