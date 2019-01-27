@@ -920,7 +920,7 @@ char *text_ptr;
 struct MeasureFormat {
   int time_signature;
   int chords_len;
-  char *chords;
+  const char *chords;
   int width;
   int leading_space;
 };
@@ -932,8 +932,8 @@ struct PartFormat {
   int line_count;
   struct MeasureFormat **lines[8];
   int ending_count;
-  int ending_measure_count;
-  struct MeasureFormat *endings;
+  const char *endings[MAX_ENDINGS];
+  int endings_length[MAX_ENDINGS];
 };
 
 int visible_chord_length(const char* chord) {
@@ -950,47 +950,80 @@ int visible_chord_length(const char* chord) {
   return vlen;
 }
 
-// TODO: Handle Unicode symbols
-void populate_measure_text(struct CMeasure *measure, struct MeasureFormat *measure_format) {
+
+const char *populate_measure_text(struct CMeasure *measure, int* chords_visible_length) {
   int first_chord = 1;
   int next_bar_broken = 0;
-  measure_format->chords = text_ptr;
+  char *chords = text_ptr;
+  *chords_visible_length = 0;
   for (struct CChord *chord = measure->chords; chord != NULL; chord = chord->next) {
     if (first_chord == 0) {
       if (next_bar_broken)
 	sprintf(text_ptr, "&#x00A6;%s", chord->name);
       else
 	sprintf(text_ptr, "|%s", chord->name);
-      measure_format->chords_len++;
+      (*chords_visible_length)++;
     } else {
       sprintf(text_ptr, "%s", chord->name);
       first_chord = 0;
     }
-    measure_format->chords_len += visible_chord_length(chord->name);
+    *chords_visible_length += visible_chord_length(chord->name);
     next_bar_broken = chord->broken_bar ? 1 : 0;
     text_ptr += strlen(text_ptr);
   }
-  int buf_len = strlen(measure_format->chords);
+  int buf_len = strlen(chords);
   // Squash chords in form of A|A
   if (buf_len > 1 && buf_len % 2 == 1) {
     int mid = buf_len / 2;
-    if (measure_format->chords[mid] == '|') {
-      if (!strncmp(measure_format->chords, &measure_format->chords[mid+1], mid)) {
-	if (strlen(&measure_format->chords[mid]) < measure_format->chords_len)
-	  measure_format->chords_len -= strlen(&measure_format->chords[mid]);
-	measure_format->chords[mid] = '\0';
-	text_ptr = &measure_format->chords[mid];
+    if (chords[mid] == '|') {
+      if (!strncmp(chords, &chords[mid+1], mid)) {
+	if (strlen(&chords[mid]) < *chords_visible_length)
+	  *chords_visible_length -= strlen(&chords[mid]);
+	chords[mid] = '\0';
+	text_ptr = &chords[mid];
       }
     }
   }
   // skip past trailing '\0'
   text_ptr++;
+  return chords;
 }
 
 void populate_time_signature(struct CMeasure *measure, struct MeasureFormat *measure_format) {
+  measure_format->time_signature = 1;
   measure_format->chords = text_ptr;
   strcpy(text_ptr, measure->time_signature);
+  measure_format->chords_len = strlen(text_ptr);
   text_ptr += strlen(text_ptr) + 1;
+}
+
+#define NBSP "&nbsp;"
+
+void populate_ending_text(int ending_index, struct CSong *song, struct CMeasure *ending, struct PartFormat* part_format) {
+  int ending_length = 0;
+  part_format->endings[ending_index] = text_ptr;
+  sprintf(text_ptr, "%s<sup>%d</sup>", left_upper_square_bracket, ending_index+1);
+  text_ptr += strlen(text_ptr);
+  ending_length += 2;
+  for (struct CMeasure *measure = ending; measure != NULL; measure = measure->next) {
+    if (measure->time_signature && song->meter_change) {
+      strcat(text_ptr, NBSP);
+      ending_length++;
+      strcat(text_ptr, "<b>");
+      strcat(text_ptr, measure->time_signature);
+      ending_length += strlen(measure->time_signature);
+      strcat(text_ptr, "</b>");
+      text_ptr += strlen(text_ptr);
+    }
+    strcat(text_ptr, NBSP);
+    ending_length++;
+    int visible_chord_length = 0;
+    // The following function writes directly to text_ptr
+    populate_measure_text(measure, &visible_chord_length);
+    ending_length += visible_chord_length;
+    text_ptr--;  // rewind to trailing '\0'
+  }
+  text_ptr++;
 }
 
 void populate_part_text(struct CSong *song, struct CPart *part, struct PartFormat *part_format) {
@@ -1001,22 +1034,16 @@ void populate_part_text(struct CSong *song, struct CPart *part, struct PartForma
     if (measure->time_signature && song->meter_change) {
       populate_time_signature(measure, &part_format->measures[next_measure++]);
     }
-    populate_measure_text(measure, &part_format->measures[next_measure++]);
+    struct MeasureFormat *measure_format = &part_format->measures[next_measure++];
+    measure_format->chords = populate_measure_text(measure, &measure_format->chords_len);
   }
   assert(next_measure == part_format->measure_count);
-  int next_ending = 0;
   if (part->next_ending != 0) {
     part_format->ending_count = part->next_ending;
     for (int i=0; i<part->next_ending; i++) {
-      for (struct CMeasure *measure = part->endings[i]; measure != NULL; measure = measure->next) {
-	if (measure->time_signature && song->meter_change) {
-	  populate_time_signature(measure, &part_format->endings[next_ending++]);
-	}
-	populate_measure_text(measure, &part_format->endings[next_ending++]);
-      }
+      populate_ending_text(i, song, part->endings[i], part_format);
     }
   }
-  assert(next_ending == part_format->ending_measure_count);
 }
 
 int same_key(struct CSong *left, struct CSong *right) {
@@ -1057,20 +1084,8 @@ int count_lines(struct PartFormat *parts, int max_part, int measures_per_line) {
   }
   return line_count;
 }
-/*
-struct MeasureFormat {
-  int time_signature;
-  int chords_len;
-  char *chords;
-  int width;
-  int leading_space;
-};
- */
-
-#define NBSP "&nbsp;"
 
 void print_measure(struct MeasureFormat *measure_fmt) {
-  log_message(1, "print_measure\n");
   char buf[128];
   char *ptr = buf;
   for (int i=0; i<measure_fmt->leading_space; i++) {
@@ -1122,11 +1137,6 @@ void print_song(struct CSong *song) {
     parts[max_part].measure_count = measure_count;
     parts[max_part].measures = malloc(measure_count*sizeof(struct MeasureFormat));
     memset(parts[max_part].measures, 0, measure_count*sizeof(struct MeasureFormat));
-    // Allocate endings array
-    measure_count = count_ending_measures(song, part);
-    parts[max_part].ending_measure_count = measure_count;
-    parts[max_part].endings = malloc(measure_count*sizeof(struct MeasureFormat));
-    memset(parts[max_part].endings, 0, measure_count*sizeof(struct MeasureFormat));
     populate_part_text(song, part, &parts[max_part]);
     max_part++;
     assert(max_part < 32);
@@ -1159,19 +1169,20 @@ void print_song(struct CSong *song) {
       lines[next_line-1][next_column] = &parts[i].measures[next_measure];
       next_measure++;
     }
-    //next_line++;
   }
 
   int total_width = 0;
   for (int i=0; i<8; i++) {
     int width = 0;
-    for (int j=0; j<line_count && lines[j][i]; j++) {
-      if (lines[j][i]->chords_len > width)
+    for (int j=0; j<line_count; j++) {
+      if (lines[j][i] && lines[j][i]->chords_len > width)
 	width = lines[j][i]->chords_len;
     }
-    for (int j=0; j<line_count && lines[j][i]; j++) {
-      lines[j][i]->width = width;
-      lines[j][i]->leading_space = 1;
+    for (int j=0; j<line_count; j++) {
+      if (lines[j][i]) {
+	lines[j][i]->width = width;
+	lines[j][i]->leading_space = 1;
+      }
     }
     total_width += width + 1;
   }
@@ -1180,8 +1191,10 @@ void print_song(struct CSong *song) {
     int extra_space = (MAX_LINE_LENGTH - total_width) / 8;
     if (extra_space > 0) {
       for (int i=0; i<8; i++) {
-	for (int j=0; j<line_count && lines[j][i]; j++) {
-	  lines[j][i]->leading_space += extra_space;
+	for (int j=0; j<line_count; j++) {
+	  if (lines[j][i]) {
+	    lines[j][i]->leading_space += extra_space;
+	  }
 	}
       }
     }
@@ -1197,7 +1210,6 @@ void print_song(struct CSong *song) {
     } else {
       fprintf(chord_out, "&nbsp;&nbsp;");
     }
-    log_message(1, "part %d line count = %d\n", i, parts[i].line_count);
     for (int j=0; j<parts[i].line_count; j++) {
       if (j > 0 && parts[i].lines[j][0] != NULL &&
 	  parts[i].lines[j][0]->chords != NULL) {
@@ -1211,12 +1223,6 @@ void print_song(struct CSong *song) {
 	print_measure(measure_fmt);
       }
     }
-    /*
-    for (int j=0; j<parts[i].measure_count; j++) {
-      struct MeasureFormat *measure_fmt = &parts[i].measures[j];
-      fprintf(chord_out, "&nbsp;&nbsp;%s", measure_fmt->chords);
-    }
-    */
     if (parts[i].part->repeat && parts[i].ending_count == 0) {
       fprintf(chord_out, "&nbsp;:|");
     }
