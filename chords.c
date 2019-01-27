@@ -1016,6 +1016,7 @@ void populate_ending_text(int ending_index, struct CSong *song, struct CMeasure 
       text_ptr += strlen(text_ptr);
     }
     strcat(text_ptr, NBSP);
+    text_ptr += strlen(text_ptr);
     ending_length++;
     int visible_chord_length = 0;
     // The following function writes directly to text_ptr
@@ -1023,6 +1024,7 @@ void populate_ending_text(int ending_index, struct CSong *song, struct CMeasure 
     ending_length += visible_chord_length;
     text_ptr--;  // rewind to trailing '\0'
   }
+  part_format->endings_length[ending_index] = ending_length;
   text_ptr++;
 }
 
@@ -1118,7 +1120,7 @@ void print_measure(struct MeasureFormat *measure_fmt) {
   fprintf(chord_out, "%s", buf);
 }
 
-#define MAX_LINE_LENGTH 64
+#define MAX_LINE_LENGTH 63
 
 void print_song(struct CSong *song) {
   int max_part = 0;
@@ -1150,19 +1152,20 @@ void print_song(struct CSong *song) {
   } else {
     fprintf(chord_out, "<h4>%s (%s)</h4>\n", song->title, key);
   }
-
-  int line_count = count_lines(parts, max_part, 8);
+  
+  int max_columns = 8;
+  int line_count = count_lines(parts, max_part, max_columns);
   struct MeasureFormat **lines[64];
   for (int i=0; i<line_count; i++) {
-    lines[i] = malloc(8*sizeof(struct MeasureFormat *));
-    memset(lines[i], 0, 8*sizeof(struct MeasureFormat *));
+    lines[i] = malloc(max_columns*sizeof(struct MeasureFormat *));
+    memset(lines[i], 0, max_columns*sizeof(struct MeasureFormat *));
   }
   int next_line = 0;
   for (int i=0; i<max_part; i++) {
     int next_measure = 0;
     parts[i].lines[parts[i].line_count++] = lines[next_line++];
     for (int j=0; j<parts[i].measure_count; j++) {
-      int next_column = next_measure % 8;
+      int next_column = next_measure % max_columns;
       if (next_measure > 0 && next_column == 0) {
 	parts[i].lines[parts[i].line_count++] = lines[next_line++];
       }
@@ -1172,7 +1175,7 @@ void print_song(struct CSong *song) {
   }
 
   int total_width = 0;
-  for (int i=0; i<8; i++) {
+  for (int i=0; i<max_columns; i++) {
     int width = 0;
     for (int j=0; j<line_count; j++) {
       if (lines[j][i] && lines[j][i]->chords_len > width)
@@ -1181,20 +1184,39 @@ void print_song(struct CSong *song) {
     for (int j=0; j<line_count; j++) {
       if (lines[j][i]) {
 	lines[j][i]->width = width;
-	lines[j][i]->leading_space = 1;
+	if (i > 0)
+	  lines[j][i]->leading_space = 1;
       }
     }
     total_width += width + 1;
   }
 
   if (total_width < MAX_LINE_LENGTH) {
-    int extra_space = (MAX_LINE_LENGTH - total_width) / 8;
+    int extra_space = (MAX_LINE_LENGTH - total_width) / (max_columns-1);
     if (extra_space > 0) {
-      for (int i=0; i<8; i++) {
+      for (int i=1; i<max_columns; i++) {
 	for (int j=0; j<line_count; j++) {
 	  if (lines[j][i]) {
 	    lines[j][i]->leading_space += extra_space;
 	  }
+	}
+      }
+      total_width += (max_columns-1) * extra_space;
+    }
+  }
+
+  if (total_width < MAX_LINE_LENGTH) {
+    int extra_space = (MAX_LINE_LENGTH - total_width) % (max_columns-1);
+    for (int i=1; i<max_columns && extra_space; i++) {
+      for (int j=0; j<line_count && extra_space; j++) {
+	if (lines[j][i] && lines[j][i]->leading_space == 1 &&
+	    lines[j][i]->width == lines[j][i]->chords_len &&
+	    lines[j][i-1]->width == lines[j][i-1]->chords_len) {
+	  // Add extra space for all rows in this column
+	  for (int k=0; k<line_count; k++) {
+	    lines[k][i]->leading_space++;
+	  }
+	  extra_space--;
 	}
       }
     }
@@ -1206,16 +1228,16 @@ void print_song(struct CSong *song) {
     else
       fprintf(chord_out, "&nbsp;&nbsp;");
     if (parts[i].part->repeat) {
-      fprintf(chord_out, "|:");
+      fprintf(chord_out, "|:&nbsp;&nbsp;");
     } else {
-      fprintf(chord_out, "&nbsp;&nbsp;");
+      fprintf(chord_out, "&nbsp;&nbsp;&nbsp;&nbsp;");
     }
     for (int j=0; j<parts[i].line_count; j++) {
       if (j > 0 && parts[i].lines[j][0] != NULL &&
 	  parts[i].lines[j][0]->chords != NULL) {
-	fprintf(chord_out, "<br/>\n&nbsp;&nbsp;&nbsp;&nbsp;");
+	fprintf(chord_out, "<br/>\n&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;");
       }
-      for (int k=0; k<8; k++) {
+      for (int k=0; k<max_columns; k++) {
 	struct MeasureFormat *measure_fmt = parts[i].lines[j][k];
 	if (measure_fmt == NULL || measure_fmt->chords == NULL) {
 	  break;
@@ -1223,7 +1245,11 @@ void print_song(struct CSong *song) {
 	print_measure(measure_fmt);
       }
     }
-    if (parts[i].part->repeat && parts[i].ending_count == 0) {
+    if (parts[i].ending_count > 0) {
+      for (int j=0; j<parts[i].ending_count; j++) {
+	fprintf(chord_out, "&nbsp;&nbsp;%s", parts[i].endings[j]);
+      }
+    } else if (parts[i].part->repeat) {
       fprintf(chord_out, "&nbsp;:|");
     }
     fprintf(chord_out, "<br/>\n");
