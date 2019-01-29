@@ -930,7 +930,7 @@ struct PartFormat {
   int measure_count;
   struct MeasureFormat *measures;
   int line_count;
-  struct MeasureFormat **lines[8];
+  struct MeasureFormat **lines[10];
   int ending_count;
   const char *endings[MAX_ENDINGS];
   int endings_length[MAX_ENDINGS];
@@ -1087,14 +1087,17 @@ int count_lines(struct PartFormat *parts, int max_part, int measures_per_line) {
   return line_count;
 }
 
-void print_measure(struct MeasureFormat *measure_fmt) {
+int print_measure(struct MeasureFormat *measure_fmt) {
+  int visible_length = 0;
   char buf[128];
   char *ptr = buf;
+  visible_length += measure_fmt->leading_space;
   for (int i=0; i<measure_fmt->leading_space; i++) {
     strcpy(ptr, NBSP);
     ptr += strlen(ptr);
   }
   int padding_len = (measure_fmt->width - measure_fmt->chords_len) / 2;
+  visible_length += padding_len;
   for (int i=0; i<padding_len; i++) {
     strcpy(ptr, NBSP);
     ptr += strlen(ptr);
@@ -1103,6 +1106,7 @@ void print_measure(struct MeasureFormat *measure_fmt) {
     strcpy(ptr, "<b>");
     ptr += strlen(ptr);
   }
+  visible_length += measure_fmt->chords_len;
   strcpy(ptr, measure_fmt->chords);
   ptr += strlen(ptr);
   if (measure_fmt->time_signature) {
@@ -1112,15 +1116,25 @@ void print_measure(struct MeasureFormat *measure_fmt) {
   if ((measure_fmt->width - measure_fmt->chords_len) % 2 == 1) {
     strcpy(ptr, NBSP);
     ptr += strlen(ptr);
+    visible_length++;
   }
+  visible_length += padding_len;
   for (int i=0; i<padding_len; i++) {
     strcpy(ptr, NBSP);
     ptr += strlen(ptr);
   }
   fprintf(chord_out, "%s", buf);
+  return visible_length;
 }
 
 #define MAX_LINE_LENGTH 63
+#define DEFAULT_MAX_COLUMNS 8
+
+void print_nbsp(int count) {
+  for (int i=0; i<count; i++) {
+    fprintf(chord_out, NBSP);
+  }
+}
 
 void print_song(struct CSong *song) {
   int max_part = 0;
@@ -1154,13 +1168,23 @@ void print_song(struct CSong *song) {
   }
   
   int max_columns = 8;
-  int line_count = count_lines(parts, max_part, max_columns);
+  int line_count = 0;
+  int next_line = 0;
+  int total_width = 0;
+  int short_line = 0;
   struct MeasureFormat **lines[64];
+
+ try_again:
+
+  line_count = count_lines(parts, max_part, max_columns);
   for (int i=0; i<line_count; i++) {
     lines[i] = malloc(max_columns*sizeof(struct MeasureFormat *));
     memset(lines[i], 0, max_columns*sizeof(struct MeasureFormat *));
   }
-  int next_line = 0;
+
+  // Setup parts format structures to point into temporary line memory allocated
+  // above
+  next_line = 0;
   for (int i=0; i<max_part; i++) {
     int next_measure = 0;
     parts[i].lines[parts[i].line_count++] = lines[next_line++];
@@ -1174,7 +1198,10 @@ void print_song(struct CSong *song) {
     }
   }
 
-  int total_width = 0;
+  // Set column "width" for each column.  The column width is defined as the
+  // largest visible chord text width (number of chars) of all rows in the
+  // column
+  total_width = 0;
   for (int i=0; i<max_columns; i++) {
     int width = 0;
     for (int j=0; j<line_count; j++) {
@@ -1191,6 +1218,24 @@ void print_song(struct CSong *song) {
     total_width += width + 1;
   }
 
+  // Check to see if all short lines are of length 2
+  short_line = 0;
+  if (max_columns == DEFAULT_MAX_COLUMNS) {
+    for (int i=0; i<max_part; i++) {
+      for (int j=1; j<parts[i].line_count; j++) {
+	for (int k=0; k<max_columns; k++) {
+	  if (parts[i].lines[j][k] == NULL) {
+	    if (short_line == 0 || short_line == 2) {
+	      short_line = k;
+	    }
+	    break;
+	  }
+	}
+      }
+    }
+  }
+
+  // Compute extra (leading) space to add to each column.
   if (total_width < MAX_LINE_LENGTH) {
     int extra_space = (MAX_LINE_LENGTH - total_width) / (max_columns-1);
     if (extra_space > 0) {
@@ -1203,8 +1248,32 @@ void print_song(struct CSong *song) {
       }
       total_width += (max_columns-1) * extra_space;
     }
+    /*
+    if (short_line == 2)
+      log_message(1, "%s short_line == 2\n", song->title);
+    */
+    // Maybe reformat this song with 10 columns
+    if (max_columns == DEFAULT_MAX_COLUMNS && short_line == 2 && extra_space >= 2) {
+      // Free temporary storage
+      for (int i=0; i<max_part; i++) {
+	memset(parts[i].lines, 0, 10*sizeof(struct MeasureFormat **));
+	parts[i].line_count = 0;
+      }
+      for (int i=0; i<line_count; i++) {
+	for (int j=1; j<max_columns; j++) {
+	  if (lines[i][j]) {
+	    lines[i][j]->leading_space = 0;
+	  }
+	}
+	free(lines[i]);
+      }
+      max_columns = 10;
+      goto try_again;
+    }
   }
 
+  // If there are any extra spaces, distribute them to crowded adjacent columns
+  // to improve readability
   if (total_width < MAX_LINE_LENGTH) {
     int extra_space = (MAX_LINE_LENGTH - total_width) % (max_columns-1);
     for (int i=1; i<max_columns && extra_space; i++) {
@@ -1232,20 +1301,30 @@ void print_song(struct CSong *song) {
     } else {
       fprintf(chord_out, "&nbsp;&nbsp;&nbsp;&nbsp;");
     }
+    int output_chars = 0;
     for (int j=0; j<parts[i].line_count; j++) {
       if (j > 0 && parts[i].lines[j][0] != NULL &&
 	  parts[i].lines[j][0]->chords != NULL) {
 	fprintf(chord_out, "<br/>\n&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;");
+	output_chars = 0;
       }
       for (int k=0; k<max_columns; k++) {
 	struct MeasureFormat *measure_fmt = parts[i].lines[j][k];
 	if (measure_fmt == NULL || measure_fmt->chords == NULL) {
 	  break;
 	}
-	print_measure(measure_fmt);
+	output_chars += print_measure(measure_fmt);
       }
     }
     if (parts[i].ending_count > 0) {
+      int endings_length = 0;
+      for (int j=0; j<parts[i].ending_count; j++) {
+	endings_length += 2 + parts[i].endings_length[j];
+      }
+      if (output_chars + endings_length > MAX_LINE_LENGTH + 3) {
+	fprintf(chord_out, "<br/>\n");
+	print_nbsp((MAX_LINE_LENGTH+3) - endings_length);
+      }
       for (int j=0; j<parts[i].ending_count; j++) {
 	fprintf(chord_out, "&nbsp;&nbsp;%s", parts[i].endings[j]);
       }
@@ -1254,6 +1333,12 @@ void print_song(struct CSong *song) {
     }
     fprintf(chord_out, "<br/>\n");
   }
+
+  // Free temporary storage
+  for (int i=0; i<line_count; i++) {
+    free(lines[i]);
+  }
+
 }
 
 int count_songs() {
