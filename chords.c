@@ -73,6 +73,7 @@ void allocate_song() {
   cur_measure = NULL;
   cur_chord = NULL;
   previous_chord = NULL;
+  previous_ending_chord = NULL;
   next_part = 'a';
   unit_note_length = -1;
   meter_note_length = -1;
@@ -296,11 +297,13 @@ void strip_empty_measures(struct CMeasure **measurep) {
 }
 
 void squash_identical_repeats(struct CPart *part) {
+
+  strip_empty_measures(&part->measures);
+
   if (part->next_ending == 0)
     return;
   part->repeat = 1;
 
-  strip_empty_measures(&part->measures);
   // reset last measure
   part->last_measure = part->measures;
   while (part->last_measure->next != NULL)
