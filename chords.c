@@ -113,6 +113,7 @@ void allocate_part() {
   ending = 0;
   if (next_part == 'a')
     cur_part->name = next_part++;
+  log_message(2, "Allocated new part (%p)\n", (void *)cur_part);
 }
 
 void allocate_named_part() {
@@ -828,6 +829,8 @@ void process_symbol(struct SYMBOL *sym) {
 	sym->u.bar.type != B_RREP &&
 	sym->u.bar.dotted == '\0' &&
 	!measure_empty(cur_measure)) {
+      if (cur_measure && cur_measure->duration < measure_duration)
+	cur_measure->leadin = 1;
       allocate_measure();
       log_message(2, "(b) Allocated measure %p (bar = %s)\n", cur_measure, bar_type(sym->u.bar.type));
     }
@@ -1425,8 +1428,9 @@ struct CSong **dedup_songs(int *max) {
     if (song_empty(song))
       continue;
     for (struct CPart *part = song->parts; part != NULL; part = part->next) {
-      if (empty_part(part))
-	continue;
+      while (part->next != NULL && empty_part(part->next)) {
+	part->next = part->next->next;
+      }
       squash_identical_repeats(part);
     }
     songs[index++] = song;
