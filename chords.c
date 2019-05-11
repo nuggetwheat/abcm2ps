@@ -735,8 +735,6 @@ void process_symbol(struct SYMBOL *sym) {
 	  previous_ending_chord = previous_chord;
 	  previous_chord = NULL;
 	}
-	log_message(2, "(a) Allocate ending\n");
-	allocate_ending();
       } else {
 	allocate_chord();
 	previous_chord = NULL;
@@ -754,16 +752,23 @@ void process_symbol(struct SYMBOL *sym) {
       duration += sym->u.note.notes[0].len;
     }
   } else if (sym->abc_type == ABC_T_BAR) {
-    log_message(2, "bar %s cur=%s prev=%s dur=%d measure_duration=%d\n",
+    log_message(2, "bar %s cur=%s prev=%s dur=%d measure_duration=%d repeat_bar=%d\n",
 		bar_type(sym->u.bar.type),
 		cur_chord ? cur_chord->name : "",
 		previous_chord ? previous_chord->name : "", duration,
-		measure_duration);
+		measure_duration, sym->u.bar.repeat_bar);
     if (cur_chord == NULL && previous_chord && duration >= measure_duration) {
       cur_chord = previous_chord;
     }
     int skip_chord = !ending && cur_part && cur_part->repeat && sym->u.bar.type == B_THIN_THICK;
-    if (new_part && !empty_part(cur_part) && !ending && !skip_chord) {
+    if (sym->u.bar.type == B_OBRA && sym->u.bar.repeat_bar) {
+      int save_duration = duration;
+      struct CChord *save_chord = cur_chord;
+      log_message(2, "(b) Allocate ending\n");
+      allocate_ending();
+      duration = save_duration;
+      cur_chord = save_chord;
+    } else if (new_part && !empty_part(cur_part) && !ending && !skip_chord) {
       int save_duration = duration;
       struct CChord *save_chord = cur_chord;
       log_message(2, "(c) Allocating part %c (bar = %s)\n", next_part, bar_type(sym->u.bar.type));
@@ -776,7 +781,7 @@ void process_symbol(struct SYMBOL *sym) {
       if (ending && cur_measure == NULL) {
 	int save_duration = duration;
 	struct CChord *save_chord = cur_chord;
-	log_message(2, "(b) Allocate ending\n");
+	log_message(2, "(c) Allocate ending\n");
 	allocate_ending();
 	duration = save_duration;
 	cur_chord = save_chord;
@@ -917,10 +922,10 @@ int count_ending_measures(struct CMeasure *measure) {
   return measure_count;
 }
 
-int count_measures_with_ending(struct CSong* song, struct CPart *part) {
+int count_measures_with_endings(struct CSong* song, struct CPart *part) {
   int measure_count = count_measures(song, part);
-  if (part->next_ending) {
-    measure_count += count_ending_measures(part->endings[0]);
+  for (int i=0; i<part->next_ending; i++) {
+    measure_count += count_ending_measures(part->endings[i]);
   }
   return measure_count;
 }
@@ -1195,12 +1200,13 @@ void print_song(struct CSong *song) {
   int total_width = 0;
   struct MeasureFormat **lines[64];
 
-  int max_columns = 10;
+  int max_columns = 8;
   for (int i=0; i<max_part; i++) {
-    int measure_count = count_measures_with_ending(song, parts[i].part);
-    if (measure_count % 10 != 0) {
-      max_columns = 8;
-      break;
+    int measure_count = count_measures_with_endings(song, parts[i].part);
+    if (measure_count == 9 && max_columns != 10) {
+      max_columns = 9;
+    } else if  (measure_count % 10 == 0) {
+      max_columns = 10;
     }
   }
 
