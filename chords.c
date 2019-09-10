@@ -1475,7 +1475,7 @@ void generate_chords_file() {
   fprintf(chord_out, "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n");
   fprintf(chord_out, "<style>\n");
   fprintf(chord_out, "* { box-sizing: border-box; }\n");
-  fprintf(chord_out, ".fixed { font-family: Courier; }\n");
+  fprintf(chord_out, ".fixed { font-family: Courier; font-size: 1.25em; }\n");
   fprintf(chord_out, ".column { float: left; width: 33.33%%; padding: 10px; font-family: Arial}\n");
   fprintf(chord_out, ".row:after { content: \"\"; display: table;clear: both; }\n");
   fprintf(chord_out, "</style>\n</head>\n<body>\n");
