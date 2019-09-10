@@ -746,10 +746,8 @@ void process_symbol(struct SYMBOL *sym) {
   }
 
   if (sym->abc_type == ABC_T_NOTE || sym->abc_type == ABC_T_REST) {
-    // skip middle note of tuplet
-    if (sym->sflags != (S_SEQST | S_IN_TUPLET) &&
-	(sym->sflags & S_SEQST) != 0) {
-      duration += sym->u.note.notes[0].len;
+    if ((sym->sflags & S_SEQST) != 0) {
+      duration += sym->dur;
     }
   } else if (sym->abc_type == ABC_T_BAR) {
     log_message(2, "bar %s cur=%s prev=%s dur=%d measure_duration=%d repeat_bar=%d\n",
