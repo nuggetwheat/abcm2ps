@@ -31,6 +31,7 @@ struct CPart {
 struct CSong {
   char *title;
   char key;
+  char key_signature;
   int accidental;
   int minor;
   int mode;

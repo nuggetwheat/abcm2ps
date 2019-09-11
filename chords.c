@@ -380,8 +380,7 @@ const char *convert_sf_to_key(int sf) {
   return "?";
 }
 
-void set_key_and_accidentals(const char *text, struct CSong *song) {
-  song->key = text[0];
+void set_accidentals(const char *text, struct CSong *song) {
   if (text[1] == 'b')
     song->accidental = -1;
   else if (text[1] == '#')
@@ -405,18 +404,24 @@ void set_key(struct SYMBOL *sym) {
   // Check for minor
   if (*(endp-1) == 'm' || strstr(endp, "minor")) {
     cur_song->minor = 1;
-    set_key_and_accidentals(beginp, cur_song);
+    cur_song->key = beginp[0];
+    set_accidentals(beginp, cur_song);
   } else if (strstr(endp, "mix")) {
     cur_song->mode = 5;
-    set_key_and_accidentals(beginp, cur_song);
+    cur_song->key = beginp[0];
+    set_accidentals(beginp, cur_song);
   } else if (strstr(endp, "dor")) {
     cur_song->mode = 2;
-    set_key_and_accidentals(beginp, cur_song);
-  }
-  else {
+    cur_song->key = beginp[0];
+    set_accidentals(beginp, cur_song);
+  } else {
     const char *key = convert_sf_to_key(sym->u.key.sf);
-    set_key_and_accidentals(key, cur_song);
+    cur_song->key = key[0];
+    set_accidentals(key, cur_song);
   }
+  const char *key = convert_sf_to_key(sym->u.key.sf);
+  cur_song->key_signature = key[0];
+  set_accidentals(key, cur_song);
 }
 
 char abc_type_buf[32];
@@ -609,6 +614,7 @@ void process_symbol(struct SYMBOL *sym) {
 	} else if (sym->text[0] == 'K') {
 	  if (cur_song->key == '\0')
 	    set_key(sym);
+	  log_message(2, "sf=%d\n", sym->u.key.sf);
 	} else if (sym->text[0] == 'L') {
 	  int l1, l2;
 	  const char *p = &sym->text[2];
@@ -1071,12 +1077,11 @@ void populate_part_text(struct CSong *song, struct CPart *part, struct PartForma
   }
 }
 
-int same_key(struct CSong *left, struct CSong *right) {
-  return left->key == right->key &&
-    left->accidental == right->accidental &&
-    left->mode == right->mode &&
-    left->minor == right->minor;
+int same_key_signature(struct CSong *left, struct CSong *right) {
+  return left->key_signature == right->key_signature &&
+    left->accidental == right->accidental;
 }
+
 
 void write_key_to_string(struct CSong *song, char *buf) {
   char *ptr = buf;
@@ -1097,6 +1102,20 @@ void write_key_to_string(struct CSong *song, char *buf) {
       strcpy(ptr, " Dorian");
     else if (song->mode == 5)
       strcpy(ptr, " Mixolydian");
+    ptr += strlen(ptr);
+  }
+  *ptr = '\0';
+}
+
+void write_key_signature_to_string(struct CSong *song, char *buf) {
+  char *ptr = buf;
+  *ptr++ = song->key_signature;
+  if (song->accidental == -1) {
+    strcpy(ptr, "&#9837;");
+    ptr += strlen(ptr);
+  }
+  else if (song->accidental == 1) {
+    strcpy(ptr, "&#9839;");
     ptr += strlen(ptr);
   }
   *ptr = '\0';
@@ -1353,24 +1372,16 @@ int compare_songs(const void *lhs, const void *rhs) {
   return strcmp(left->title, right->title);
 }
 
-int compare_songs_by_key(const void *lhs, const void *rhs) {
+int compare_songs_by_key_signature(const void *lhs, const void *rhs) {
   struct CSong *left = *(struct CSong **)lhs;
   struct CSong *right = *(struct CSong **)rhs;
-  if (left->key < right->key)
+  if (left->key_signature < right->key_signature)
     return -1;
-  else if (left->key == right->key) {
+  else if (left->key_signature == right->key_signature) {
     if (left->accidental < right->accidental)
       return -1;
     else if (left->accidental == right->accidental) {
-      if (left->mode < right->mode)
-	return -1;
-      else if (left->mode == right->mode) {
-	if (left->minor < right->minor)
-	  return -1;
-	else if (left->minor == right->minor) {
-	  return strcmp(left->title, right->title);
-	}
-      }
+      return strcmp(left->title, right->title);
     }
   }
   return 1;
@@ -1378,20 +1389,29 @@ int compare_songs_by_key(const void *lhs, const void *rhs) {
 
 void print_index_key_heading(struct CSong *song) {
   char key_buf[32];
-  write_key_to_string(song, key_buf);
+  write_key_signature_to_string(song, key_buf);
   fprintf(chord_out, "<h4 style=\"font-family: Arial\">%s</h4>\n", key_buf);
 }
 
 void print_index(struct CSong **original_songs, int max_song) {
   struct CSong **songs = malloc(max_song * sizeof(struct CSong *));
   memcpy(songs, original_songs, max_song * sizeof(struct CSong *));
-  qsort(songs, max_song, sizeof(struct CSong *), compare_songs_by_key);
+  qsort(songs, max_song, sizeof(struct CSong *), compare_songs_by_key_signature);
+  // unique the list
+  int dst = 1;
+  for (int i=1; i<max_song; i++) {
+    if (strcmp(songs[dst-1]->title, songs[i]->title) == 0) {
+      continue;
+    }
+    songs[dst++] = songs[i];
+  }
+  max_song = dst;
   int base = 0;
-  fprintf(chord_out, "<h2 style=\"font-family: Arial\">Tunes by Key</h2>\n");
+  fprintf(chord_out, "<h2 style=\"font-family: Arial\">Tunes by Key Signature</h2>\n");
   int index = 0;
   while (base < max_song) {
     index = base + 1;
-    while (index < max_song && same_key(songs[index-1], songs[index])) {
+    while (index < max_song && same_key_signature(songs[index-1], songs[index])) {
       index++;
     }
     print_index_key_heading(songs[base]);
