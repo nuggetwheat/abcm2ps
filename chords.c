@@ -1281,10 +1281,16 @@ void print_song(struct CSong *song) {
       next_measure++;
     }
     int insert_newlines = newline_per_ending(&parts[i], max_columns);
-    int ending_start_column = next_measure % max_columns;
+    int first_ending_start_column = next_measure % max_columns;
     for (int j=0; j<parts[i].ending_count; j++) {
       if (j > 0 && insert_newlines) {
 	parts[i].lines[parts[i].line_count++] = lines[next_line++];
+	int ending_start_column = first_ending_start_column;
+	// Prevent endings of differing lengths from wrapping
+	if (first_ending_start_column + parts[i].ending_measure_count[j] > max_columns &&
+	    parts[i].ending_measure_count[j] <= max_columns) {
+	  ending_start_column = max_columns - parts[i].ending_measure_count[j];
+	}
 	for (int k=0; k<ending_start_column; k++) {
 	  lines[next_line-1][k] = malloc(sizeof(struct MeasureFormat));
 	  memset(lines[next_line-1][k], 0, sizeof(struct MeasureFormat));
