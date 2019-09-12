@@ -1176,7 +1176,7 @@ int print_measure(struct MeasureFormat *measure_fmt) {
   return visible_length;
 }
 
-#define MAX_LINES_PER_PAGE 54
+#define MAX_LINES_PER_PAGE 52
 #define MAX_LINE_LENGTH 63
 #define DEFAULT_MAX_COLUMNS 8
 
@@ -1230,14 +1230,14 @@ void print_song(struct CSong *song) {
 
   char key[32];
   char *class_attribute = "";
-  int song_line_count = 5 + line_count;
+  int song_line_count = 3 + line_count;
   write_key_to_string(song, key);
-  //fprintf(chord_out, "<!-- %d %d -->\n", (lines_printed % MAX_LINES_PER_PAGE), song_line_count);
-  if ((lines_printed % MAX_LINES_PER_PAGE) + song_line_count > MAX_LINES_PER_PAGE) {
+  //fprintf(chord_out, "<!-- %d %d -->\n", lines_printed, song_line_count);
+  if (lines_printed + song_line_count > MAX_LINES_PER_PAGE) {
     class_attribute = " class=\"page-break-before\"";
-    lines_printed = song_line_count;
+    lines_printed = song_line_count + 2;
   } else {
-    lines_printed += song_line_count;
+    lines_printed += song_line_count + 2;
   }
   if (song->time_signature && song->meter_change == 0) {
     fprintf(chord_out, "<h4%s>%s (%s %s)</h4>\n", class_attribute, song->title, key, song->time_signature);
