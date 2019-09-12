@@ -74,7 +74,7 @@ void allocate_song() {
   cur_chord = NULL;
   previous_chord = NULL;
   previous_ending_chord = NULL;
-  next_part = 'a';
+  next_part = 'A';
   unit_note_length = -1;
   meter_note_length = -1;
   l_divisor = 0;
@@ -111,7 +111,7 @@ void allocate_part() {
   duration = 0;
   leadin_duration = 0;
   ending = 0;
-  if (next_part == 'a')
+  if (next_part == 'A')
     cur_part->name = next_part++;
   log_message(2, "Allocated new part (%p)\n", (void *)cur_part);
 }
@@ -1176,6 +1176,7 @@ int print_measure(struct MeasureFormat *measure_fmt) {
   return visible_length;
 }
 
+#define MAX_LINES_PER_PAGE 54
 #define MAX_LINE_LENGTH 63
 #define DEFAULT_MAX_COLUMNS 8
 
@@ -1184,6 +1185,8 @@ void print_nbsp(int count) {
     fprintf(chord_out, NBSP);
   }
 }
+
+int lines_printed = 3;  // Approximate lines for header
 
 void print_song(struct CSong *song) {
   int max_part = 0;
@@ -1203,14 +1206,6 @@ void print_song(struct CSong *song) {
     assert(max_part < 32);
   }
   assert(text_ptr - text_buf < TEXTBUF_SIZE);
-
-  char key[32];
-  write_key_to_string(song, key);
-  if (song->time_signature && song->meter_change == 0) {
-    fprintf(chord_out, "<h4>%s (%s %s)</h4>\n", song->title, key, song->time_signature);
-  } else {
-    fprintf(chord_out, "<h4>%s (%s)</h4>\n", song->title, key);
-  }
   
   int line_count = 0;
   int next_line = 0;
@@ -1231,6 +1226,23 @@ void print_song(struct CSong *song) {
   for (int i=0; i<line_count; i++) {
     lines[i] = malloc(max_columns*sizeof(struct MeasureFormat *));
     memset(lines[i], 0, max_columns*sizeof(struct MeasureFormat *));
+  }
+
+  char key[32];
+  char *class_attribute = "";
+  int song_line_count = 5 + line_count;
+  write_key_to_string(song, key);
+  //fprintf(chord_out, "<!-- %d %d -->\n", (lines_printed % MAX_LINES_PER_PAGE), song_line_count);
+  if ((lines_printed % MAX_LINES_PER_PAGE) + song_line_count > MAX_LINES_PER_PAGE) {
+    class_attribute = " class=\"page-break-before\"";
+    lines_printed = song_line_count;
+  } else {
+    lines_printed += song_line_count;
+  }
+  if (song->time_signature && song->meter_change == 0) {
+    fprintf(chord_out, "<h4%s>%s (%s %s)</h4>\n", class_attribute, song->title, key, song->time_signature);
+  } else {
+    fprintf(chord_out, "<h4%s>%s (%s)</h4>\n", class_attribute, song->title, key);
   }
 
   // Setup parts format structures to point into temporary line memory allocated
@@ -1315,13 +1327,13 @@ void print_song(struct CSong *song) {
 
   for (int i=0; i<max_part; i++) {
     if (parts[i].part->name)
-      fprintf(chord_out, "<i>%c</i>&nbsp;", parts[i].part->name);
+      fprintf(chord_out, "<span class=\"part-name\">%c</span>&nbsp;&nbsp;", parts[i].part->name);
     else
-      fprintf(chord_out, "&nbsp;&nbsp;");
+      fprintf(chord_out, "<span class=\"part-name\">&nbsp;</span>&nbsp;&nbsp;");
     if (parts[i].part->repeat) {
-      fprintf(chord_out, "|:&nbsp;&nbsp;");
+      fprintf(chord_out, "|:&nbsp;");
     } else {
-      fprintf(chord_out, "&nbsp;&nbsp;&nbsp;&nbsp;");
+      fprintf(chord_out, "&nbsp;&nbsp;&nbsp;");
     }
     int output_chars = 0;
     for (int j=0; j<parts[i].line_count; j++) {
@@ -1329,9 +1341,9 @@ void print_song(struct CSong *song) {
       if (j > 0 && next_measure_fmt != NULL &&
 	  next_measure_fmt->chords != NULL) {
 	if (next_measure_fmt->ending > 0) {
-	  fprintf(chord_out, "<br/>\n&nbsp;&nbsp;");
+	  fprintf(chord_out, "<br/>\n&nbsp;&nbsp;&nbsp;");
 	} else {
-	  fprintf(chord_out, "<br/>\n&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;");
+	  fprintf(chord_out, "<br/>\n<span class=\"part-name\">&nbsp;</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;");
 	}
 	output_chars = 0;
       }
@@ -1387,10 +1399,14 @@ int compare_songs_by_key_signature(const void *lhs, const void *rhs) {
   return 1;
 }
 
-void print_index_key_heading(struct CSong *song) {
+void print_index_key_heading(struct CSong *song, int break_before) {
   char key_buf[32];
   write_key_signature_to_string(song, key_buf);
+  if (break_before)
+    fprintf(chord_out, "<div class=\"page-break-before\">\n");
   fprintf(chord_out, "<h4 style=\"font-family: Arial\">%s</h4>\n", key_buf);
+  if (break_before)
+    fprintf(chord_out, "</div>\n");
 }
 
 void print_index(struct CSong **original_songs, int max_song) {
@@ -1414,7 +1430,8 @@ void print_index(struct CSong **original_songs, int max_song) {
     while (index < max_song && same_key_signature(songs[index-1], songs[index])) {
       index++;
     }
-    print_index_key_heading(songs[base]);
+    print_index_key_heading(songs[base], songs[base]->key_signature == 'D' ||
+			    songs[base]->key_signature == 'G');
     int third = ((index - base) + 2) / 3;
     int first = base + third;
     int second = first + third;
@@ -1493,16 +1510,21 @@ void generate_chords_file() {
   fprintf(chord_out, "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n");
   fprintf(chord_out, "<style>\n");
   fprintf(chord_out, "* { box-sizing: border-box; }\n");
-  fprintf(chord_out, ".fixed { font-family: Courier; font-size: 1.25em; }\n");
+  fprintf(chord_out, ".fixed { font-family: Courier; font-size: 1.25em; white-space: nowrap; }\n");
   fprintf(chord_out, ".column { float: left; width: 33.33%%; padding: 10px; font-family: Arial}\n");
   fprintf(chord_out, ".row:after { content: \"\"; display: table;clear: both; }\n");
+  fprintf(chord_out, ".page-break-before { page-break-before: always; }\n");
+  fprintf(chord_out, ".part-name { display: inline-block; width: 15px; text-align: center; "
+	  "font-family: \"Times New Roman\"; font-weight: bold;}\n");
   fprintf(chord_out, "</style>\n</head>\n<body>\n");
 
   fprintf(chord_out, "<div style=\"font-family: Arial\">\n");
+  fprintf(chord_out, "<h1 style=\"text-align: center;\">South Bay Old-Time Jam</h1>\n");
+  fprintf(chord_out, "<br/>\n<br/>\n");
   print_index(songs, max_song);
   fprintf(chord_out, "</div>\n");  
 
-  fprintf(chord_out, "<h2 style=\"font-family: Arial\">Alphabetical List of Tunes</h2>\n");
+  fprintf(chord_out, "<h2 class=\"page-break-before\" style=\"font-family: Arial\">Alphabetical List of Tunes</h2>\n");
   fprintf(chord_out, "<div class=\"fixed\">\n");
 
   for (int index = 0; index < max_song; index++) {
