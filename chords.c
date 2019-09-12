@@ -1121,10 +1121,28 @@ void write_key_signature_to_string(struct CSong *song, char *buf) {
   *ptr = '\0';
 }
 
+int newline_per_ending(struct PartFormat *part, int measures_per_line) {
+  if (part->ending_count > 1) {
+    int ending_measure_count = 0;
+    for (int i=0; i<part->ending_count; i++) {
+      ending_measure_count += part->ending_measure_count[i];
+    }
+    int lastline_measure_count = (part->measure_count % measures_per_line);
+    if (lastline_measure_count + part->ending_measure_count[0] <= measures_per_line &&
+	lastline_measure_count + ending_measure_count > measures_per_line) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
 int count_lines(struct PartFormat *parts, int max_part, int measures_per_line) {
   int line_count = 0;
   for (int i=0; i<max_part; i++) {
     int measure_count = parts[i].measure_count;
+    if (newline_per_ending(&parts[i], measures_per_line)) {
+      line_count += parts[i].ending_count - 1;
+    }
     for (int j=0; j<parts[i].ending_count; j++) {
       measure_count += parts[i].ending_measure_count[j];
     }
@@ -1148,7 +1166,7 @@ int print_measure(struct MeasureFormat *measure_fmt) {
     ptr += strlen(ptr);
   }
   if (measure_fmt->ending) {
-    sprintf(ptr, "%s<sup>%d</sup>&nbsp;", left_upper_square_bracket, measure_fmt->ending);
+    sprintf(ptr, "<span class=\"ending\">%s<sup>%d</sup></span>&nbsp;", left_upper_square_bracket, measure_fmt->ending);
     ptr += strlen(ptr);
   }
   if (measure_fmt->time_signature) {
@@ -1229,12 +1247,12 @@ void print_song(struct CSong *song) {
   }
 
   char key[32];
-  char *class_attribute = " style=\"font-family: Georgia;\"";
+  char *class_attribute = " style=\"font-family: Arial;\"";
   int song_line_count = 3 + line_count;
   write_key_to_string(song, key);
   //fprintf(chord_out, "<!-- %d %d -->\n", lines_printed, song_line_count);
   if (lines_printed + song_line_count > MAX_LINES_PER_PAGE) {
-    class_attribute = " class=\"page-break-before\" style=\"font-family: Georgia;\"";
+    class_attribute = " class=\"page-break-before\" style=\"font-family: Arial;\"";
     lines_printed = song_line_count + 2;
   } else {
     lines_printed += song_line_count + 2;
@@ -1247,6 +1265,9 @@ void print_song(struct CSong *song) {
 
   // Setup parts format structures to point into temporary line memory allocated
   // above
+  struct MeasureFormat empty_measure;
+  memset(&empty_measure, 0, sizeof(empty_measure));
+  empty_measure.chords = "";
   next_line = 0;
   for (int i=0; i<max_part; i++) {
     int next_measure = 0;
@@ -1259,10 +1280,21 @@ void print_song(struct CSong *song) {
       lines[next_line-1][next_column] = &parts[i].measures[next_measure];
       next_measure++;
     }
+    int insert_newlines = newline_per_ending(&parts[i], max_columns);
+    int ending_start_column = next_measure % max_columns;
     for (int j=0; j<parts[i].ending_count; j++) {
+      if (j > 0 && insert_newlines) {
+	parts[i].lines[parts[i].line_count++] = lines[next_line++];
+	for (int k=0; k<ending_start_column; k++) {
+	  lines[next_line-1][k] = malloc(sizeof(struct MeasureFormat));
+	  memset(lines[next_line-1][k], 0, sizeof(struct MeasureFormat));
+	  lines[next_line-1][k]->chords = "";
+	}
+	next_measure = ending_start_column;
+      }
       for (int k=0; k<parts[i].ending_measure_count[j]; k++) {
 	int next_column = next_measure % max_columns;
-	if (next_measure > 0 && next_column == 0) {
+	if (next_measure > 0 && next_column == 0 && insert_newlines == 0) {
 	  parts[i].lines[parts[i].line_count++] = lines[next_line++];
 	}
 	lines[next_line-1][next_column] = &parts[i].ending[j][k];
@@ -1515,7 +1547,8 @@ void generate_chords_file() {
   fprintf(chord_out, ".row:after { content: \"\"; display: table;clear: both; }\n");
   fprintf(chord_out, ".page-break-before { page-break-before: always; }\n");
   fprintf(chord_out, ".part-name { display: inline-block; width: 15px; text-align: center; "
-	  "font-family: \"Times New Roman\"; font-weight: bold;}\n");
+	  "font-family: \"Times New Roman\"; font-weight: bold; }\n");
+  fprintf(chord_out, ".ending { display: inline-block; width: 24px; text-align: left; }\n");
   fprintf(chord_out, "</style>\n</head>\n<body>\n");
 
   fprintf(chord_out, "<div style=\"font-family: Arial\">\n");
