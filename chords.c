@@ -1229,12 +1229,12 @@ void print_song(struct CSong *song) {
   }
 
   char key[32];
-  char *class_attribute = "";
+  char *class_attribute = " style=\"font-family: Georgia;\"";
   int song_line_count = 3 + line_count;
   write_key_to_string(song, key);
   //fprintf(chord_out, "<!-- %d %d -->\n", lines_printed, song_line_count);
   if (lines_printed + song_line_count > MAX_LINES_PER_PAGE) {
-    class_attribute = " class=\"page-break-before\"";
+    class_attribute = " class=\"page-break-before\" style=\"font-family: Georgia;\"";
     lines_printed = song_line_count + 2;
   } else {
     lines_printed += song_line_count + 2;
