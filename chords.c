@@ -987,24 +987,53 @@ int visible_chord_length(const char* chord) {
   return vlen;
 }
 
+char *scale_degrees[7] = { "I", "ii", "iii", "IV", "V", "vi", "vii" };
+char chord_text_buf[32];
+const char *chord_text(const char* chord_name, char key_signature) {
+  const char *iptr = chord_name;
+  char *optr = chord_text_buf;
+  if (generate_chords_output == CHORD_OUTPUT_SCALE_DEGREE) {
+    while (*iptr) {
+      if (*iptr < 'A' || *iptr > 'G') {
+	if (strncmp(iptr, "&#", 2) == 0) {
+	  iptr += 8;
+	} else {
+	  *optr++ = *iptr++;
+	}
+      } else {
+	int index = (*iptr >= key_signature) ? *iptr - key_signature : (*iptr + 7) - key_signature;
+	assert(index >= 0 && index < 8);
+	strcpy(optr, scale_degrees[index]);
+	optr += strlen(optr);
+	while (*iptr && (isalnum(*iptr) || isspace(*iptr) || *iptr == '#'))
+	  iptr++;
+      }
+    }
+    *optr = '\0';
+    return chord_text_buf;
+  }
+  return chord_name;
+}
 
-const char *populate_measure_text(struct CMeasure *measure, int* chords_visible_length) {
+
+const char *populate_measure_text(struct CSong* song, struct CMeasure *measure, int* chords_visible_length) {
   int first_chord = 1;
   int next_bar_broken = 0;
   char *chords = text_ptr;
   *chords_visible_length = 0;
   for (struct CChord *chord = measure->chords; chord != NULL; chord = chord->next) {
+    const char *chord_str = chord_text(chord->name, song->key_signature);
     if (first_chord == 0) {
       if (next_bar_broken)
-	sprintf(text_ptr, "&#x00A6;%s", chord->name);
+	sprintf(text_ptr, "&#x00A6;%s", chord_str);
       else
-	sprintf(text_ptr, "|%s", chord->name);
+	sprintf(text_ptr, "|%s", chord_str);
       (*chords_visible_length)++;
     } else {
-      sprintf(text_ptr, "%s", chord->name);
+      sprintf(text_ptr, "%s", chord_str);
       first_chord = 0;
     }
-    *chords_visible_length += visible_chord_length(chord->name);
+    *chords_visible_length += visible_chord_length(chord_str);
     next_bar_broken = chord->broken_bar ? 1 : 0;
     text_ptr += strlen(text_ptr);
   }
@@ -1036,15 +1065,6 @@ void populate_time_signature(struct CMeasure *measure, struct MeasureFormat *mea
 
 #define NBSP "&nbsp;"
 
-const char *populate_ending_text(int ending_index, struct CMeasure *measure, int* chords_visible_length) {
-  char *chords = text_ptr;
-  sprintf(text_ptr, "%s<sup>%d</sup>", left_upper_square_bracket, ending_index+1);
-  text_ptr += strlen(text_ptr);
-  populate_measure_text(measure, chords_visible_length);
-  *chords_visible_length += 2;
-  return chords;
-}
-
 void populate_part_text(struct CSong *song, struct CPart *part, struct PartFormat *part_format) {
   int next_measure = 0;
   for (struct CMeasure *measure = part->measures; measure != NULL; measure = measure->next) {
@@ -1054,7 +1074,7 @@ void populate_part_text(struct CSong *song, struct CPart *part, struct PartForma
       populate_time_signature(measure, &part_format->measures[next_measure++]);
     }
     struct MeasureFormat *measure_format = &part_format->measures[next_measure++];
-    measure_format->chords = populate_measure_text(measure, &measure_format->chords_len);
+    measure_format->chords = populate_measure_text(song, measure, &measure_format->chords_len);
   }
   assert(next_measure == part_format->measure_count);
   if (part->next_ending != 0) {
@@ -1071,7 +1091,7 @@ void populate_part_text(struct CSong *song, struct CPart *part, struct PartForma
 	  //measure_format->chords = populate_ending_text(i, measure, &measure_format->chords_len);
 	  first = 0;
 	}
-	measure_format->chords = populate_measure_text(measure, &measure_format->chords_len);
+	measure_format->chords = populate_measure_text(song, measure, &measure_format->chords_len);
       }
     }
   }

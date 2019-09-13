@@ -903,6 +903,8 @@ void svg_close();
 void define_font(char *name, int num, int enc);
 void define_symbols(void);
 /* chords.c */
+#define CHORD_OUTPUT_NAME 1
+#define CHORD_OUTPUT_SCALE_DEGREE 2
 extern int generate_chords_output;
 void add_chords();
 void generate_chords_file();

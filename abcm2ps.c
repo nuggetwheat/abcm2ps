@@ -601,7 +601,21 @@ int main(int argc, char **argv)
 		while ((c = *++p) != '\0') {	/* '-xxx' */
 			switch (c) {
 			case 'C':
-			        generate_chords_output = 1;
+				if (p[1] == '\0') {
+				  if (argc - 1 > 0 && strcmp(*(argv+1), "V") == 0) {
+				    generate_chords_output = CHORD_OUTPUT_SCALE_DEGREE;
+				    argv++;
+				    argc--;
+				  } else {
+				    generate_chords_output = CHORD_OUTPUT_NAME;
+				  }
+				} else if (p[1] == 'V') {
+				  generate_chords_output = CHORD_OUTPUT_SCALE_DEGREE;
+				  p += strlen(p) - 1;
+				} else {
+				  error(1, NULL, "Unrecognized value for '-C' - aborting");
+				  return EXIT_FAILURE;
+				}
 				break;
 			case 'E':
 				svg = 0;	/* EPS */
