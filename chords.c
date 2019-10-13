@@ -1248,7 +1248,7 @@ int print_measure(struct MeasureFormat *measure_fmt) {
   return visible_length;
 }
 
-#define MAX_LINES_PER_PAGE 52
+#define MAX_LINES_PER_PAGE 51
 #define MAX_LINE_LENGTH 63
 #define DEFAULT_MAX_COLUMNS 8
 
