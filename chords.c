@@ -934,7 +934,7 @@ int count_measures_with_endings(struct CSong* song, struct CPart *part) {
   return measure_count;
 }
 
-#define TEXTBUF_SIZE 2048
+#define TEXTBUF_SIZE 4096
 char text_buf[TEXTBUF_SIZE];
 char *text_ptr;
 
@@ -988,30 +988,64 @@ int visible_chord_length(const char* chord) {
 }
 
 char *scale_degrees[7] = { "I", "ii", "iii", "IV", "V", "vi", "vii" };
-char chord_text_buf[32];
-const char *chord_text(const char* chord_name, char key_signature) {
+char *scale_degrees_major[7] = { "I", "II", "III", "IV", "V", "VI", "VII" };
+const char *scale_degree(int index, int is_major) {
+  if (is_major)
+    return scale_degrees_major[index];
+  return scale_degrees[index];
+}
+
+char chord_text_buf[256];
+const char *chord_text(const char* chord_name, char key_signature, int* chords_visible_length) {
   const char *iptr = chord_name;
   char *optr = chord_text_buf;
   if (generate_chords_output == CHORD_OUTPUT_SCALE_DEGREE) {
     while (*iptr) {
       if (*iptr < 'A' || *iptr > 'G') {
 	if (strncmp(iptr, "&#", 2) == 0) {
+	  strncpy(optr, iptr, 8);
 	  iptr += 8;
+	  optr += 8;
 	} else {
-	  *optr++ = *iptr++;
+	  if (isdigit(*iptr)) {
+	    sprintf(optr, "<span class=\"super\">%c</span>", *iptr);
+	    optr += strlen(optr);
+	    iptr++;
+	  } else if (strlen(iptr) > 2 && iptr[0] == '(' && isdigit(iptr[1]) && iptr[2] == ')') {
+	    sprintf(optr, "<span class=\"super\" style=\"width: 24px;\">(%c)</span>", iptr[1]);
+	    optr += strlen(optr);
+	    iptr += 3;
+	    (*chords_visible_length) += 1;
+	  } else {
+	    *optr++ = *iptr++;
+	  }
 	}
+	(*chords_visible_length)++;
       } else {
 	int index = (*iptr >= key_signature) ? *iptr - key_signature : (*iptr + 7) - key_signature;
 	assert(index >= 0 && index < 8);
-	strcpy(optr, scale_degrees[index]);
-	optr += strlen(optr);
-	while (*iptr && (isalnum(*iptr) || isspace(*iptr) || *iptr == '#'))
+	iptr++;
+	if (*iptr == '#') {
 	  iptr++;
+	}
+	int is_minor = 0;
+	if (*iptr && (*iptr == 'm' || (*iptr == 'M' && *(iptr+1) == 'i'))) {
+	  is_minor = 1;
+	}
+	strcpy(optr, scale_degree(index, is_minor == 0));
+	(*chords_visible_length) += strlen(optr);
+	optr += strlen(optr);
+	while (*iptr && (isalpha(*iptr) || isspace(*iptr) || *iptr == '#'))
+	  iptr++;
+	if (*iptr == '(' && *(iptr+1) >= 'A' && *(iptr+1) <= 'G') {
+	  *optr++ = *iptr++;
+	}
       }
     }
     *optr = '\0';
     return chord_text_buf;
   }
+  *chords_visible_length += visible_chord_length(chord_name);
   return chord_name;
 }
 
@@ -1022,7 +1056,7 @@ const char *populate_measure_text(struct CSong* song, struct CMeasure *measure, 
   char *chords = text_ptr;
   *chords_visible_length = 0;
   for (struct CChord *chord = measure->chords; chord != NULL; chord = chord->next) {
-    const char *chord_str = chord_text(chord->name, song->key_signature);
+    const char *chord_str = chord_text(chord->name, song->key_signature, chords_visible_length);
     if (first_chord == 0) {
       if (next_bar_broken)
 	sprintf(text_ptr, "&#x00A6;%s", chord_str);
@@ -1033,7 +1067,6 @@ const char *populate_measure_text(struct CSong* song, struct CMeasure *measure, 
       sprintf(text_ptr, "%s", chord_str);
       first_chord = 0;
     }
-    *chords_visible_length += visible_chord_length(chord_str);
     next_bar_broken = chord->broken_bar ? 1 : 0;
     text_ptr += strlen(text_ptr);
   }
@@ -1052,6 +1085,7 @@ const char *populate_measure_text(struct CSong* song, struct CMeasure *measure, 
   }
   // skip past trailing '\0'
   text_ptr++;
+  assert(text_ptr - text_buf < TEXTBUF_SIZE);
   return chords;
 }
 
@@ -1173,7 +1207,7 @@ int count_lines(struct PartFormat *parts, int max_part, int measures_per_line) {
 
 int print_measure(struct MeasureFormat *measure_fmt) {
   int visible_length = 0;
-  char buf[128];
+  char buf[4096];
   char *ptr = buf;
   int padding_len = (measure_fmt->width - measure_fmt->chords_len) / 2;
   int leading_space = measure_fmt->leading_space + padding_len;
@@ -1282,6 +1316,8 @@ void print_song(struct CSong *song) {
   } else {
     fprintf(chord_out, "<h4%s>%s (%s)</h4>\n", class_attribute, song->title, key);
   }
+
+  log_message(2, "Title: %s\n", song->title);
 
   // Setup parts format structures to point into temporary line memory allocated
   // above
@@ -1574,6 +1610,7 @@ void generate_chords_file() {
   fprintf(chord_out, ".page-break-before { page-break-before: always; }\n");
   fprintf(chord_out, ".part-name { display: inline-block; width: 15px; text-align: center; "
 	  "font-family: \"Times New Roman\"; font-weight: bold; }\n");
+  fprintf(chord_out, ".super { display: inline-block; width: 12px; text-align: center; vertical-align: top; font-size: 75%%;}\n");
   fprintf(chord_out, ".ending { display: inline-block; width: 24px; text-align: left; }\n");
   fprintf(chord_out, "</style>\n</head>\n<body>\n");
 
