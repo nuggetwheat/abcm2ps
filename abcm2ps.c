@@ -601,20 +601,22 @@ int main(int argc, char **argv)
 		while ((c = *++p) != '\0') {	/* '-xxx' */
 			switch (c) {
 			case 'C':
-				if (p[1] == '\0') {
-				  if (argc - 1 > 0 && strcmp(*(argv+1), "V") == 0) {
-				    generate_chords_output = CHORD_OUTPUT_SCALE_DEGREE;
-				    argv++;
-				    argc--;
-				  } else {
-				    generate_chords_output = CHORD_OUTPUT_NAME;
+			        generate_chords_output = 1;
+			        if (p[1] != '\0') {
+				  while (1) {
+				    if (p[1] == 'V') {
+				      generate_chords_output |= CHORD_OUTPUT_SCALE_DEGREE;
+				    } else if (p[1] == 'K') {
+				      generate_chords_output |= CHORD_OUTPUT_BY_KEY_SIGNATURE;
+				    } else {
+				      error(1, NULL, "Unrecognized value for '-C' - aborting");
+				      return EXIT_FAILURE;
+				    }
+				    p++;
+				    if (p[1] == '\0') {
+				      break;
+				    }
 				  }
-				} else if (p[1] == 'V') {
-				  generate_chords_output = CHORD_OUTPUT_SCALE_DEGREE;
-				  p += strlen(p) - 1;
-				} else {
-				  error(1, NULL, "Unrecognized value for '-C' - aborting");
-				  return EXIT_FAILURE;
 				}
 				break;
 			case 'E':
