@@ -9,6 +9,7 @@
 
 char bar_buf[8];
 int duration = 0;
+int note_count = 0;
 int leadin_duration = 0;
 char next_part = 'a';
 int unit_note_length = -1;
@@ -17,6 +18,7 @@ int new_part = 0;
 int previous_bar_type = 0;
 int ending = 0;
 int generate_chords_output = 0;
+int generate_complexity_output = 0;
 FILE *chord_out = NULL;
 int l_divisor = 0;
 int meter_num = 0;
@@ -82,6 +84,7 @@ void allocate_song() {
   meter_denom = 0;
   measure_duration = BASE_LEN;
   duration = 0;
+  note_count = 0;
   leadin_duration = 0;
   new_part = 0;
   previous_bar_type = 0;
@@ -128,8 +131,12 @@ void allocate_measure() {
     log_message(2, "(a) Allocating part %c\n", next_part);
     allocate_part();
   }
-  if (cur_measure != NULL && cur_measure->chords == NULL)
-    return;
+  if (cur_measure != NULL) {
+    if (cur_measure->chords == NULL)
+      return;
+    cur_measure->notes = note_count;
+  }
+  note_count = 0;
   struct CMeasure *measure = allocate_bytes(sizeof(struct CMeasure));
   memset(measure, 0, sizeof(*measure));
   if (cur_measure == NULL) {
@@ -755,6 +762,9 @@ void process_symbol(struct SYMBOL *sym) {
     if ((sym->sflags & S_SEQST) != 0) {
       duration += sym->dur;
     }
+    if (sym->abc_type == ABC_T_NOTE) {
+      note_count++;
+    }
   } else if (sym->abc_type == ABC_T_BAR) {
     log_message(2, "bar %s cur=%s prev=%s dur=%d measure_duration=%d repeat_bar=%d\n",
 		bar_type(sym->u.bar.type),
@@ -881,8 +891,13 @@ void process_symbol(struct SYMBOL *sym) {
       }
     }
     previous_bar_type = sym->u.bar.type;
-    if (sym->u.bar.type == B_THIN_THICK)
+    if (sym->u.bar.type == B_THIN_THICK) {
       song_finished = 1;
+      if (cur_measure) {
+	cur_measure->notes = note_count;
+	note_count = 0;
+      }
+    }
   }
 }
 
@@ -890,6 +905,9 @@ void add_chords() {
   int old_arena_level = lvlarena(0);
   for (struct SYMBOL *sym = parse.first_sym; sym != NULL; sym = sym->abc_next) {
     process_symbol(sym);
+  }
+  if (cur_measure && cur_measure->notes != 0) {
+    cur_measure->notes = note_count;
   }
   lvlarena(old_arena_level);
 }
@@ -1686,4 +1704,58 @@ void generate_chords_file() {
   }
   fprintf(chord_out, "</div>\n");
   fprintf(chord_out, "</body>\n</html>\n");
+  fclose(chord_out);
+}
+
+float song_complexity(struct CSong *song) {
+  int total_measures = 0;
+  int total_notes = 0;
+  for (struct CPart *part = song->parts; part != NULL; part = part->next) {
+    if (skip_part(part))
+      continue;
+    for (struct CMeasure *measure = part->measures; measure != NULL; measure = measure->next) {
+      if (measure->leadin)
+	continue;
+      total_measures++;
+      total_notes += measure->notes;
+    }
+    for (int i=0; i<part->next_ending; i++) {
+      for (struct CMeasure *measure = part->endings[i]; measure != NULL; measure = measure->next) {
+	if (measure->leadin)
+	  continue;
+	total_measures++;
+	total_notes += measure->notes;
+      }
+    }
+  }
+  return (float)total_notes / (float)total_measures;
+}
+
+void escape_string(const char *str, char *dst) {
+  const char *src = str;
+  while (*src) {
+    if (*src == '\'') {
+      *dst++ = '\\';
+    }
+    *dst++ = *src++;
+  }
+  *dst = '\0';
+}
+
+void generate_complexity_file() {
+  int max_song;
+  struct CSong **songs = dedup_songs(&max_song);
+  char escaped_title[256];
+
+  chord_out = fopen("SongComplexity.csv", "w");
+  fprintf(chord_out, "Complexity,Title\n");
+  for (int index = 0; index < max_song; index++) {
+    if (index > 0 && equal_songs(songs[index-1], songs[index]) != 0)
+      continue;
+    float complexity = song_complexity(songs[index]);
+    escape_string(songs[index]->title, escaped_title);
+    fprintf(chord_out, "%.2f,'%s'\n", complexity, escaped_title);
+  }
+
+  fclose(chord_out);
 }

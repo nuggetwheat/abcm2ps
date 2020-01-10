@@ -905,5 +905,7 @@ ignore:
 	abc_eof();
 	if (generate_chords_output)
 	  generate_chords_file();
+	if (generate_complexity_output)
+	  generate_complexity_file();
 
 }

@@ -857,8 +857,14 @@ int main(int argc, char **argv)
 					annotate = 1;
 					break;
 				case 'c':
-					cfmt.continueall = 1;
-					lock_fmt(&cfmt.continueall);
+				        if (strcmp(p, "complexity") == 0) {
+					  generate_complexity_output = 1;
+					  generate_chords_output = 1;
+					  p += strlen(p) - 1;
+					} else {
+					  cfmt.continueall = 1;
+					  lock_fmt(&cfmt.continueall);
+					}
 					break;
 				case 'C':
 				case 'E':

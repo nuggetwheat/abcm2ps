@@ -906,5 +906,7 @@ void define_symbols(void);
 #define CHORD_OUTPUT_SCALE_DEGREE     0x010
 #define CHORD_OUTPUT_BY_KEY_SIGNATURE 0x100
 extern int generate_chords_output;
+extern int generate_complexity_output;
 void add_chords();
 void generate_chords_file();
+void generate_complexity_file();

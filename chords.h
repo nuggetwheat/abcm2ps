@@ -8,6 +8,7 @@ struct CChord {
 
 struct CMeasure {
   int duration;
+  int notes;
   int leadin;
   int finished;
   char *time_signature;
