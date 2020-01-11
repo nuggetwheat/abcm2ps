@@ -600,25 +600,6 @@ int main(int argc, char **argv)
 		}
 		while ((c = *++p) != '\0') {	/* '-xxx' */
 			switch (c) {
-			case 'C':
-			        generate_chords_output = 1;
-			        if (p[1] != '\0') {
-				  while (1) {
-				    if (p[1] == 'V') {
-				      generate_chords_output |= CHORD_OUTPUT_SCALE_DEGREE;
-				    } else if (p[1] == 'K') {
-				      generate_chords_output |= CHORD_OUTPUT_BY_KEY_SIGNATURE;
-				    } else {
-				      error(1, NULL, "Unrecognized value for '-C' - aborting");
-				      return EXIT_FAILURE;
-				    }
-				    p++;
-				    if (p[1] == '\0') {
-				      break;
-				    }
-				  }
-				}
-				break;
 			case 'E':
 				svg = 0;	/* EPS */
 				epsf = 1;
@@ -857,14 +838,8 @@ int main(int argc, char **argv)
 					annotate = 1;
 					break;
 				case 'c':
-				        if (strcmp(p, "complexity") == 0) {
-					  generate_complexity_output = 1;
-					  generate_chords_output = 1;
-					  p += strlen(p) - 1;
-					} else {
-					  cfmt.continueall = 1;
-					  lock_fmt(&cfmt.continueall);
-					}
+					cfmt.continueall = 1;
+					lock_fmt(&cfmt.continueall);
 					break;
 				case 'C':
 				case 'E':
@@ -930,6 +905,44 @@ int main(int argc, char **argv)
 					/* fall thru */
 					/* flags with parameter.. */
 				case 'a':
+				        if (p[1] != '\0') {
+					  if (strcmp(p, "aux-output") == 0) {
+					    p += strlen(p) - 1;
+					    argv++;
+					    argc--;
+					    if (strcmp(*argv, "chords") == 0) {
+					      aux.output |= AUX_OUTPUT_CHORDS;
+					    } else if (strcmp(*argv, "complexity") == 0) {
+					      aux.output |= AUX_OUTPUT_COMPLEXITY;
+					    } else if (strcmp(*argv, "irealpro") == 0) {
+					      aux.output |= AUX_OUTPUT_IREALPRO;
+					    } else {
+					      error(1, NULL, "Unrecognized aux output type: %s", argv);
+					      return EXIT_FAILURE;
+					    }
+					  } else if (strcmp(p, "aux-flag") == 0) {
+					    p += strlen(p) - 1;
+					    argv++;
+					    argc--;
+					    if (strcmp(*argv, "title") == 0) {
+					      aux.title = strdup(*(argv+1));
+					      argv++;
+					      argc--;
+					    } else if (strcmp(*argv, "song-title-format") == 0) {
+					      aux.song_title_format = strdup(*(argv+1));
+					      argv++;
+					      argc--;
+					    } else if (strcmp(*argv, "chords-index-keysignature") == 0) {
+					      aux.flag |= AUX_FLAG_CHORDS_INDEX_KEYSIGNATURE;
+					    } else if (strcmp(*argv, "chords-by-scaledegree") == 0) {
+					      aux.flag |= AUX_FLAG_CHORDS_BY_SCALEDEGREE;
+					    }
+					  } else {
+					    error(1, NULL, "Unrecognized flag: %s", p);
+					    return EXIT_FAILURE;
+					  }
+					  break;
+					}
 				case 'B':
 				case 'b':
 				case 'D':

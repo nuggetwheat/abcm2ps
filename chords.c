@@ -17,8 +17,6 @@ int meter_note_length = -1;
 int new_part = 0;
 int previous_bar_type = 0;
 int ending = 0;
-int generate_chords_output = 0;
-int generate_complexity_output = 0;
 FILE *chord_out = NULL;
 int l_divisor = 0;
 int meter_num = 0;
@@ -28,6 +26,7 @@ int skipping_voice = 0;
 int song_finished = 0;
 char primary_voice[64];
 char *next_time_signature = NULL;
+struct Auxillary aux = { 0, 0, (char *)0, (char *)0 };
 
 struct CSong *first_song = NULL;
 struct CSong *cur_song = NULL;
@@ -1017,7 +1016,7 @@ char chord_text_buf[256];
 const char *chord_text(const char* chord_name, char key_signature, int* chords_visible_length) {
   const char *iptr = chord_name;
   char *optr = chord_text_buf;
-  if (generate_chords_output & CHORD_OUTPUT_SCALE_DEGREE) {
+  if (aux.flag & AUX_FLAG_CHORDS_BY_SCALEDEGREE) {
     while (*iptr) {
       if (*iptr < 'A' || *iptr > 'G') {
 	if (strncmp(iptr, "&#", 2) == 0) {
@@ -1550,7 +1549,7 @@ int compare_songs_by_key_signature(const void *lhs, const void *rhs) {
 
 void print_index_key_heading(struct CSong *song, int break_before) {
   char key_buf[32];
-  if (generate_chords_output & CHORD_OUTPUT_BY_KEY_SIGNATURE) {
+  if (aux.flag & AUX_FLAG_CHORDS_INDEX_KEYSIGNATURE) {
     write_key_signature_to_string(song, key_buf);
   } else {
     write_key_to_string(song, key_buf, 0);
@@ -1565,7 +1564,7 @@ void print_index_key_heading(struct CSong *song, int break_before) {
 void print_index(struct CSong **original_songs, int max_song) {
   struct CSong **songs = malloc(max_song * sizeof(struct CSong *));
   memcpy(songs, original_songs, max_song * sizeof(struct CSong *));
-  if (generate_chords_output & CHORD_OUTPUT_BY_KEY_SIGNATURE) {
+  if (aux.flag & AUX_FLAG_CHORDS_INDEX_KEYSIGNATURE) {
     qsort(songs, max_song, sizeof(struct CSong *), compare_songs_by_key_signature);
   } else {
     qsort(songs, max_song, sizeof(struct CSong *), compare_songs_by_key);
@@ -1580,7 +1579,7 @@ void print_index(struct CSong **original_songs, int max_song) {
   }
   max_song = dst;
   int base = 0;
-  if (generate_chords_output & CHORD_OUTPUT_BY_KEY_SIGNATURE) {
+  if (aux.flag & AUX_FLAG_CHORDS_INDEX_KEYSIGNATURE) {
     fprintf(chord_out, "<h2 style=\"font-family: Arial\">Tunes by Key Signature</h2>\n");
   } else {
     fprintf(chord_out, "<h2 style=\"font-family: Arial\">Tunes by Key</h2>\n");
@@ -1588,7 +1587,7 @@ void print_index(struct CSong **original_songs, int max_song) {
   int index = 0;
   while (base < max_song) {
     index = base + 1;
-    if (generate_chords_output & CHORD_OUTPUT_BY_KEY_SIGNATURE) {
+    if (aux.flag & AUX_FLAG_CHORDS_INDEX_KEYSIGNATURE) {
       while (index < max_song && same_key_signature(songs[index-1], songs[index])) {
 	index++;
       }
@@ -1671,7 +1670,7 @@ void generate_chords_file() {
   int max_song;
   struct CSong **songs = dedup_songs(&max_song);
 
-  chord_out = fopen("Chords.html", "w");
+  chord_out = fopen("chords.html", "w");
 
   fprintf(chord_out, "<!DOCTYPE html>\n<html>\n<head>\n");
   fprintf(chord_out, "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n");
@@ -1688,7 +1687,7 @@ void generate_chords_file() {
   fprintf(chord_out, "</style>\n</head>\n<body>\n");
 
   fprintf(chord_out, "<div style=\"font-family: Arial\">\n");
-  fprintf(chord_out, "<h1 style=\"text-align: center;\">South Bay Old-Time Jam</h1>\n");
+  fprintf(chord_out, "<h1 style=\"text-align: center;\">%s</h1>\n", aux.title ? aux.title : "[INSERT TITLE HERE]");
   fprintf(chord_out, "<br/>\n<br/>\n");
   print_index(songs, max_song);
   fprintf(chord_out, "</div>\n");  
@@ -1747,7 +1746,7 @@ void generate_complexity_file() {
   struct CSong **songs = dedup_songs(&max_song);
   char escaped_title[256];
 
-  chord_out = fopen("SongComplexity.csv", "w");
+  chord_out = fopen("complexity.csv", "w");
   fprintf(chord_out, "Complexity,Title\n");
   for (int index = 0; index < max_song; index++) {
     if (index > 0 && equal_songs(songs[index-1], songs[index]) != 0)

@@ -903,10 +903,18 @@ void svg_close();
 void define_font(char *name, int num, int enc);
 void define_symbols(void);
 /* chords.c */
-#define CHORD_OUTPUT_SCALE_DEGREE     0x010
-#define CHORD_OUTPUT_BY_KEY_SIGNATURE 0x100
-extern int generate_chords_output;
-extern int generate_complexity_output;
+struct Auxillary {
+  int output;
+  int flag;
+  char *title;
+  char *song_title_format;
+};
+#define AUX_OUTPUT_CHORDS     0x001
+#define AUX_OUTPUT_COMPLEXITY 0x010
+#define AUX_OUTPUT_IREALPRO   0x100
+#define AUX_FLAG_CHORDS_BY_SCALEDEGREE     0x001
+#define AUX_FLAG_CHORDS_INDEX_KEYSIGNATURE 0x010
+extern struct Auxillary aux;
 void add_chords();
 void generate_chords_file();
 void generate_complexity_file();

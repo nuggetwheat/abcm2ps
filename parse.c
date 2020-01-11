@@ -3651,7 +3651,7 @@ void do_tune(void)
 		info['X' - 'A'] = NULL;
 	}
 
-	if (generate_chords_output)
+	if (aux.output)
 	  add_chords();
 
 	/* free the parsing resources */
