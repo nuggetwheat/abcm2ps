@@ -1758,3 +1758,183 @@ void generate_complexity_file() {
 
   fclose(chord_out);
 }
+
+char *strcpy_irealpro_escape(char *dst, const char *src) {
+  while (*src) {
+    if (*src == '=' || *src == '%' || *src == '&' || *src == '?') {
+      sprintf(dst, "%%%X", *src);
+      dst += strlen(dst);
+      src++;
+    } else {
+      *dst++ = *src++;
+    }
+  }
+  return dst;
+}
+
+char tsig_buf[4];
+const char *irealpro_convert_timesignature(const char *time_signature) {
+  char *dst = tsig_buf;
+  int got_first_digit = 0;
+  *dst++ = 'T';
+  for (const char *src = time_signature; *src; src++) {
+    if (isdigit(*src)) {
+      *dst++ = *src;
+      if (got_first_digit) break;
+      got_first_digit = 1;
+    }
+  }
+  *dst = '\0';
+  return tsig_buf;
+}
+
+char song_buf[TEXTBUF_SIZE];
+const char *song_to_irealpro_format(struct CSong *song) {
+  char *dst = song_buf;
+
+  // Title
+  strcpy_irealpro_escape(dst, song->title);
+  dst += strlen(dst);
+
+  // Composer
+  strcpy(dst, "=Unknown");
+  dst += strlen(dst);
+
+  // Style
+  if (song->time_signature && strcmp(song->time_signature, "3/4") == 0) {
+    strcpy(dst, "=Waltz");
+  } else if (song->time_signature && strcmp(song->time_signature, "6/8") == 0) {
+    strcpy(dst, "=Jig");
+  } else {
+    strcpy(dst, "=Fiddle Tune");
+  }
+  dst += strlen(dst);
+
+  // Key Signature
+  *dst++ = '=';
+  *dst++ = song->key_signature;
+  if (song->accidental == -1)
+    *dst++ = 'b';
+  else if (song->accidental == -1) {
+    strcpy_irealpro_escape(dst, "#");
+    dst += strlen(dst);
+  }
+
+  // Unused
+  strcpy(dst, "=n");
+  dst += strlen(dst);
+
+  // Chord Progression
+  *dst++ = '=';
+
+  // Time signature
+  // todo turn this into a function
+  if (!song->meter_change && song->time_signature) {
+    strcpy(dst, irealpro_convert_timesignature(song->time_signature));
+    dst += strlen(dst);
+  }
+
+  char part_name = 'A';
+  for (struct CPart *part = song->parts; part != NULL; part = part->next) {
+    if (skip_part(part))
+      continue;
+    if (part->repeat) {
+      *dst++ = '{';
+    } else {
+      *dst++ = '[';
+    }
+    *dst++ = '*';
+    *dst++ = part_name++;
+
+    int first_measure = 1;
+    for (struct CMeasure *measure = part->measures; measure != NULL; measure = measure->next) {
+      if (measure->leadin)
+	continue;
+      if (measure->time_signature) {
+	strcpy(dst, irealpro_convert_timesignature(measure->time_signature));
+	dst += strlen(dst);
+      }
+      if (first_measure == 0) {
+	*dst++ = '|';
+      } else {
+	first_measure = 0;
+      }
+      for (struct CChord *chord = measure->chords; chord != NULL; chord = chord->next) {
+	sprintf(dst, "%s ", chord->name);
+	dst += strlen(dst);
+      }
+    }
+    for (int i=0; i<part->next_ending; i++) {
+      for (struct CMeasure *measure = part->endings[i]; measure != NULL; measure = measure->next) {
+	if (measure->leadin)
+	  continue;
+	sprintf(dst, "|N%d", i+1);
+	dst += strlen(dst);
+	for (struct CChord *chord = measure->chords; chord != NULL; chord = chord->next) {
+	  sprintf(dst, "%s ", chord->name);
+	  dst += strlen(dst);
+	}
+      }
+    }
+    if (part->repeat) {
+      strcpy(dst, "} ");
+    } else if (part->next == 0) {
+      strcpy(dst, "Z ");
+    } else {
+      strcpy(dst, "] ");
+    }
+    dst += strlen(dst);
+  }
+  *dst = '\0';
+  return song_buf;
+}
+
+void generate_irealpro_file() {
+  int max_song;
+  struct CSong **songs = dedup_songs(&max_song);
+  char escaped_title[256];
+
+  chord_out = fopen("irealpro.html", "w");
+
+  fprintf(chord_out, "<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Transitional//EN\" \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd\">\n");
+  fprintf(chord_out, "<html xmlns=\"http://www.w3.org/1999/xhtml\">\n");
+  fprintf(chord_out, "<head>\n");
+  fprintf(chord_out, "<meta http-equiv=\"Content-Type\" content=\"text/html; charset=UTF-8\" />\n");
+  fprintf(chord_out, "<meta name=\"viewport\" content=\"width=device-width, minimum-scale=1, maximum-scale=1\" />\n");
+  fprintf(chord_out, "<title>iReal Pro</title>\n");
+  fprintf(chord_out, "<style type=\"text/css\">\n");
+  fprintf(chord_out, ".help {\n");
+  fprintf(chord_out, "font-size: small;\n");
+  fprintf(chord_out, "color: #999999;\n");
+  fprintf(chord_out, "}\n");
+  fprintf(chord_out, "</style>\n");
+  fprintf(chord_out, "</head>\n");
+  fprintf(chord_out, "<body style=\"color: rgb(230, 227, 218); background-color: rgb(27, 39, 48); font-family: Helvetica,Arial,sans-serif;\" alink=\"#b2e0ff\" link=\"#94d5ff\" vlink=\"#b2e0ff\">\n");
+  fprintf(chord_out, "<br/><br/>\n");
+  fprintf(chord_out, "<h3><a href=\"irealbook://");
+
+  int first_song = 1;
+  int song_count = 0;
+  for (int index = 0; index < max_song; index++) {
+    if (index > 0 && equal_songs(songs[index-1], songs[index]) != 0)
+      continue;
+    if (first_song) {
+      fprintf(chord_out, "%s", song_to_irealpro_format(songs[index]));
+      first_song = 0;
+    } else {
+      fprintf(chord_out, "=%s", song_to_irealpro_format(songs[index]));
+    }
+    song_count++;
+  }
+
+  const char *title = aux.title ? aux.title : "Dummy Title";
+  fprintf(chord_out, "=%s\">%s</a>  (%d)<br /></h3><br />", title, title, song_count);
+  //<p>Test Song 1<br/>Test Song 2<br/></p>
+
+  fprintf(chord_out, "<br/>Made with iReal Pro \n");
+  fprintf(chord_out, "<a href=\"http://www.irealpro.com\"><img src=\"http://www.irealb.com/forums/images/images/misc/ireal-pro-logo-50.png\" width=\"25\" height=\"25\" hspace=\"10\" alt=\"\"/></a>\n");
+  fprintf(chord_out, "   <br/><br/><span class=\"help\">- iOS: tap Share/Export and choose Copy to iReal Pro.<br />- Mac: drag the .html file on the iReal Pro App icon in the dock.</span><br/>\n");
+  fprintf(chord_out, "</body>\n");
+
+  fclose(chord_out);
+}

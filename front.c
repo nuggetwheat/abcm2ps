@@ -907,5 +907,7 @@ ignore:
 	  generate_chords_file();
 	if (aux.output & AUX_OUTPUT_COMPLEXITY)
 	  generate_complexity_file();
+	if (aux.output & AUX_OUTPUT_IREALPRO)
+	  generate_irealpro_file();
 
 }

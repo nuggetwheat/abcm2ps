@@ -918,3 +918,4 @@ extern struct Auxillary aux;
 void add_chords();
 void generate_chords_file();
 void generate_complexity_file();
+void generate_irealpro_file();
