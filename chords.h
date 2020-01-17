@@ -30,6 +30,8 @@ struct CPart {
   struct CPart *next;
 };
 
+#define MAX_LONGEST_INTERVALS 10
+
 struct CSong {
   char *title;
   char key;
@@ -40,6 +42,7 @@ struct CSong {
   char *time_signature;
   int meter_change;
   int index;
+  char longest_intervals[MAX_LONGEST_INTERVALS];
   struct CPart *parts;
   struct CSong *next;
 };

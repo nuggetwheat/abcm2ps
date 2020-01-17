@@ -26,6 +26,7 @@ int song_finished = 0;
 char primary_voice[64];
 char *next_time_signature = NULL;
 int auto_detect_parts = 1;
+char last_note_pitch = 0;
 
 struct Auxillary aux = { 0, 0, (char *)0, (char *)0 };
 
@@ -93,6 +94,7 @@ void allocate_song() {
   song_finished = 0;
   next_time_signature = NULL;
   auto_detect_parts = 1;
+  last_note_pitch = 0;
 }
 
 void allocate_part() {
@@ -117,6 +119,7 @@ void allocate_part() {
   cur_part->name = (char *)allocate_bytes(2);
   cur_part->name[0] = next_part++;
   cur_part->name[1] = '\0';
+  last_note_pitch = 0;
 }
 
 void allocate_named_part(const char *name) {
@@ -596,12 +599,40 @@ const char *get_chord_name(struct SYMBOL *sym, int *repeatp) {
   return NULL;
 }
 
+int compare_intervals(const void *lhs, const void *rhs) {
+  return *(const char *)lhs - *(const char *)rhs;
+}
+
+
+void add_interval(struct SYMBOL *sym) {
+  char pitch = 0;
+  for (int i=0; sym->u.note.notes[i].len; i++) {
+    // select highest pitch note
+    if (sym->u.note.notes[i].pit > pitch) {
+      pitch = sym->u.note.notes[i].pit;
+      LOG_MESSAGE("Pitch=%d (last=%d)", pitch, last_note_pitch);
+    }
+  }
+  if (last_note_pitch) {
+    char interval = (last_note_pitch < pitch) ? (pitch - last_note_pitch) : (last_note_pitch - pitch);
+    if (cur_song->longest_intervals[0] < interval) {
+      cur_song->longest_intervals[0] = interval;
+      qsort(cur_song->longest_intervals, MAX_LONGEST_INTERVALS, sizeof(char), compare_intervals);
+    }
+  }
+  last_note_pitch = pitch;
+}
+
 void process_symbol(struct SYMBOL *sym) {
 
   if (sym == NULL)
     return;
 
   LOG_MESSAGE("%s '%s' sflags=0x%x", abc_type(sym), sym->text ? sym->text : "", sym->sflags);
+
+  if (sym->abc_type == ABC_T_NOTE) {
+    add_interval(sym);
+  }
 
   if (sym->abc_type == ABC_T_INFO) {
     if (sym->text != NULL) {
@@ -1695,7 +1726,7 @@ void generate_chords_file() {
   fclose(chord_out);
 }
 
-float song_complexity(struct CSong *song) {
+float notes_per_measure(struct CSong *song) {
   int total_measures = 0;
   int total_notes = 0;
   for (struct CPart *part = song->parts; part != NULL; part = part->next) {
@@ -1722,7 +1753,7 @@ float song_complexity(struct CSong *song) {
 void escape_string(const char *str, char *dst) {
   const char *src = str;
   while (*src) {
-    if (*src == '\'') {
+    if (*src == '"') {
       *dst++ = '\\';
     }
     *dst++ = *src++;
@@ -1736,13 +1767,19 @@ void generate_complexity_file() {
   char escaped_title[256];
 
   chord_out = fopen("complexity.csv", "w");
-  fprintf(chord_out, "Complexity,Title\n");
+  fprintf(chord_out, "Key,\"Time\nSignature\",\"Notes Per\nMeasure\",\"Average\nLong Interval\",Title\n");
   for (int index = 0; index < max_song; index++) {
     if (index > 0 && equal_songs(songs[index-1], songs[index]) != 0)
       continue;
-    float complexity = song_complexity(songs[index]);
+    float npm = notes_per_measure(songs[index]);
     escape_string(songs[index]->title, escaped_title);
-    fprintf(chord_out, "%.2f,'%s'\n", complexity, escaped_title);
+    float avg_largest_interval = 0.0;
+    for (int i=0; i<MAX_LONGEST_INTERVALS; i++) {
+      avg_largest_interval += songs[index]->longest_intervals[i];
+    }
+    avg_largest_interval /= (float)MAX_LONGEST_INTERVALS;
+    fprintf(chord_out, "%c,%s,%.2f,%.1f,\"%s\"\n", songs[index]->key,
+	    songs[index]->time_signature, npm, avg_largest_interval, escaped_title);
   }
 
   fclose(chord_out);
