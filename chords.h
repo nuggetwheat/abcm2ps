@@ -11,6 +11,7 @@ struct CMeasure {
   int notes;
   int leadin;
   int finished;
+  int ending;
   char *time_signature;
   struct CChord *chords;
   struct CChord *last_chord;
@@ -20,7 +21,7 @@ struct CMeasure {
 #define MAX_ENDINGS 4
 
 struct CPart {
-  char name;
+  char *name;
   int repeat;
   int next_ending;
   struct CMeasure *measures;

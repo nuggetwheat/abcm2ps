@@ -11,10 +11,9 @@ char bar_buf[8];
 int duration = 0;
 int note_count = 0;
 int leadin_duration = 0;
-char next_part = 'a';
+char next_part = 'A';
 int unit_note_length = -1;
 int meter_note_length = -1;
-int new_part = 0;
 int previous_bar_type = 0;
 int ending = 0;
 FILE *chord_out = NULL;
@@ -26,6 +25,8 @@ int skipping_voice = 0;
 int song_finished = 0;
 char primary_voice[64];
 char *next_time_signature = NULL;
+int auto_detect_parts = 1;
+
 struct Auxillary aux = { 0, 0, (char *)0, (char *)0 };
 
 struct CSong *first_song = NULL;
@@ -36,16 +37,16 @@ struct CChord *cur_chord = NULL;
 struct CChord *previous_chord = NULL;
 struct CChord *previous_ending_chord = NULL;
 
-#define LOG_LEVEL 1
+#define VERBOSE 1
 
-void log_message(int level, const char* fmt, ... ) {
-  if (level <= LOG_LEVEL) {
-    va_list args;
-    va_start(args, fmt);
-    vfprintf(stderr, fmt, args );
-    va_end(args);
-  }
-}
+#ifdef VERBOSE
+#define LOG_MESSAGE(...) \
+  fprintf (stderr, "%d ", __LINE__); \
+  fprintf (stderr, __VA_ARGS__); \
+  fprintf (stderr, "\n")
+#else
+#define LOG_MESSAGE(...)
+#endif
 
 int empty_part(struct CPart *part) {
   if (part == NULL)
@@ -85,13 +86,13 @@ void allocate_song() {
   duration = 0;
   note_count = 0;
   leadin_duration = 0;
-  new_part = 0;
   previous_bar_type = 0;
   ending = 0;
   skipping_voice = 0;
   primary_voice[0] = '\0';
   song_finished = 0;
   next_time_signature = NULL;
+  auto_detect_parts = 1;
 }
 
 void allocate_part() {
@@ -113,22 +114,21 @@ void allocate_part() {
   duration = 0;
   leadin_duration = 0;
   ending = 0;
-  if (next_part == 'A')
-    cur_part->name = next_part++;
-  log_message(2, "Allocated new part (%p)\n", (void *)cur_part);
+  cur_part->name = (char *)allocate_bytes(2);
+  cur_part->name[0] = next_part++;
+  cur_part->name[1] = '\0';
 }
 
-void allocate_named_part() {
-  char next_part_name = next_part;
+void allocate_named_part(const char *name) {
   allocate_part();
-  if (next_part_name == next_part)
-    cur_part->name = next_part++;
+  cur_part->name = (char *)allocate_bytes(strlen(name)+1);
+  strcpy(cur_part->name, name);
 }
 
 void allocate_measure() {
   if (cur_part == NULL) {
-    log_message(2, "(a) Allocating part %c\n", next_part);
     allocate_part();
+    LOG_MESSAGE("Allocated part %s (%p)", cur_part->name, (void *)cur_part);
   }
   if (cur_measure != NULL) {
     if (cur_measure->chords == NULL)
@@ -154,17 +154,16 @@ void allocate_measure() {
 
 void allocate_ending() {
   if (cur_part == NULL) {
-    log_message(2, "(b) Allocating part %c\n", next_part);
     allocate_part();
+    LOG_MESSAGE("Allocated part %s (%p)", cur_part->name, (void *)cur_part);
   }
   struct CMeasure *measure = allocate_bytes(sizeof(struct CMeasure));
   memset(measure, 0, sizeof(struct CMeasure));
   assert(cur_part->next_ending < MAX_ENDINGS);
   cur_part->endings[cur_part->next_ending++] = measure;
   cur_measure = measure;
-  log_message(2, "(!) allocated measure %p\n", (void *)cur_measure);
+  cur_measure->ending = 1;
   ending++;
-  log_message(2, "Allocated ending %d\n", ending);
   previous_chord = NULL;
   cur_chord = NULL;
 }
@@ -258,17 +257,18 @@ void add_chord_to_measure() {
   }
   if (cur_measure == NULL) {
     allocate_measure();
-    log_message(2, "(a) Allocated measure %p\n", cur_measure);
+    LOG_MESSAGE("Allocated measure %p", cur_measure);
   }
   if (cur_measure->chords == NULL) {
     cur_measure->chords = cur_measure->last_chord = cur_chord;
   }
   else {
+    assert(cur_measure->last_chord != cur_chord);
     cur_measure->last_chord->next = cur_chord;
     cur_measure->last_chord = cur_chord;
   }
   cur_measure->duration += cur_chord->duration;
-  log_message(2, "Added %s to measure %p (duration=%d)\n", cur_chord->name, (void *)cur_measure, cur_chord->duration);
+  LOG_MESSAGE("Added %s to measure %p (duration=%d)", cur_chord->name, (void *)cur_measure, cur_chord->duration);
   previous_chord = cur_chord;
   cur_chord = NULL;
 }
@@ -284,6 +284,7 @@ int song_empty(struct CSong *song) {
   return 1;
 }
 
+// fix me !! (get rid of measure == NULL)
 int measure_empty(struct CMeasure *measure) {
   if (measure == NULL)
     return 0;
@@ -403,20 +404,20 @@ void set_key(struct SYMBOL *sym) {
     endp++;
   }
   // lowercase the rest
-  for (char *textp = endp; *textp; textp++) {
+  for (char *textp = beginp+1; *textp; textp++) {
     if (isalpha(*textp) && !islower(*textp))
       *textp = tolower(*textp);
   }
   // Check for minor
-  if (*(endp-1) == 'm' || strstr(endp, "minor")) {
+  if (*(endp-1) == 'm' || strstr(beginp, "minor")) {
     cur_song->minor = 1;
     cur_song->key = beginp[0];
     set_accidentals(beginp, cur_song);
-  } else if (strstr(endp, "mix")) {
+  } else if (strstr(beginp, "mix")) {
     cur_song->mode = 5;
     cur_song->key = beginp[0];
     set_accidentals(beginp, cur_song);
-  } else if (strstr(endp, "dor")) {
+  } else if (strstr(beginp, "dor")) {
     cur_song->mode = 2;
     cur_song->key = beginp[0];
     set_accidentals(beginp, cur_song);
@@ -516,7 +517,7 @@ const char *clean_chord(const char *text) {
     }
   }
 
-  log_message(2, "Name = '%s'\n", g_tmp_chord_buf);
+  LOG_MESSAGE("Name = '%s'", g_tmp_chord_buf);
 
   // Make sure it looks like a chord
   int index = *g_tmp_chord_buf != '(' ? 0 : 1;
@@ -571,10 +572,11 @@ const char *get_chord_name(struct SYMBOL *sym, int *repeatp) {
     int idx = gch->idx;
     if (gch->type == 'r')
       *repeatp = 1;
+    LOG_MESSAGE("chord_name = '%s'", &sym->text[idx]);
     if (sym->text[idx] == '?' || sym->text[idx] == '@' ||
 	sym->text[idx] == '<' || sym->text[idx] == '>' ||
 	sym->text[idx] == '^' || sym->text[idx] == '_' ||
-	sym->text[idx] == '$' || isspace(sym->text[idx]))
+	sym->text[idx] == '$' || (idx > 0 && sym->text[idx-1] == '^') || isspace(sym->text[idx]))
       continue;
     const char *clean = clean_chord(&sym->text[gch->idx]);
     int len = strlen(clean);
@@ -599,7 +601,7 @@ void process_symbol(struct SYMBOL *sym) {
   if (sym == NULL)
     return;
 
-  log_message(2, "sym->abc_type = %s, type=%d, sflags=0x%x\n", abc_type(sym), sym->type, sym->sflags);
+  LOG_MESSAGE("%s '%s' sflags=0x%x", abc_type(sym), sym->text ? sym->text : "", sym->sflags);
 
   if (sym->abc_type == ABC_T_INFO) {
     if (sym->text != NULL) {
@@ -607,7 +609,7 @@ void process_symbol(struct SYMBOL *sym) {
 	allocate_song();
 	cur_song->index = (int)strtol(&sym->text[2], NULL, 0);
       } else {
-	if (song_finished)
+	if (sym->text[0] != 'P' && song_finished)
 	  return;
 	if (sym->text[0] == 'T') {
 	  if (cur_song->title == NULL) {
@@ -618,9 +620,12 @@ void process_symbol(struct SYMBOL *sym) {
 	    strcpy(cur_song->title, &sym->text[offset]);
 	  }
 	} else if (sym->text[0] == 'K') {
+	  if (strstr(sym->text, "staffscale=0.")) {
+	    song_finished = 1;
+	  }
 	  if (cur_song->key == '\0')
 	    set_key(sym);
-	  log_message(2, "sf=%d\n", sym->u.key.sf);
+	  LOG_MESSAGE("Key=%c, Mode=%d, sf=%d", cur_song->key, cur_song->mode, sym->u.key.sf);
 	} else if (sym->text[0] == 'L') {
 	  int l1, l2;
 	  const char *p = &sym->text[2];
@@ -649,7 +654,6 @@ void process_symbol(struct SYMBOL *sym) {
 	  }
 	  next_time_signature = allocate_bytes(strlen(time_signature)+1);
 	  strcpy(next_time_signature, time_signature);
-	  //log_message(2, "(ending=%d) Setting measure %p time signature to %p\n", ending, cur_measure, next_time_signature);
 	  if (cur_song->time_signature == NULL) {
 	    cur_song->time_signature = next_time_signature;
 	  } else if (cur_song->meter_change == 0 &&
@@ -657,7 +661,7 @@ void process_symbol(struct SYMBOL *sym) {
 	    cur_song->meter_change = 1;
 	  }
 	  // If current measure is still being populated, add time signature
-	  if (cur_measure != NULL && cur_measure->finished != 1) {
+	  if (cur_measure != NULL && cur_measure->finished != 1 && cur_measure->time_signature == NULL) {
 	    cur_measure->time_signature = next_time_signature;
 	    next_time_signature = NULL;
 	  }
@@ -670,11 +674,22 @@ void process_symbol(struct SYMBOL *sym) {
 	    if (l_divisor > 1)
 	      measure_duration /= l_divisor;
 	  }
-	} else if (sym->text[0] == 'P' && strcmp(sym->text, "P:W") && !empty_part(cur_part) && !ending) {
-	  log_message(2, "(s) Allocating part %c\n", next_part);
-	  allocate_named_part();
+	} else if (sym->text[0] == 'P' && strcmp(sym->text, "P:W") &&
+		   !(cur_measure && cur_measure->ending && cur_measure->chords == NULL)) {
+	  song_finished = 0;
+	  skipping_voice = 0;
+	  auto_detect_parts = 0;
+	  LOG_MESSAGE("Got %s", sym->text);
+	  if (cur_part && cur_part->measures && cur_part->measures->next == 0) {
+	    LOG_MESSAGE("Renaming current part to '%s'", &sym->text[2]);
+	    cur_part->name = (char *)allocate_bytes(strlen(&sym->text[2])+1);
+	    strcpy(cur_part->name, &sym->text[2]);
+	  } else {
+	    allocate_named_part(&sym->text[2]);
+	    LOG_MESSAGE("Allocated part %s (%p)", cur_part->name, (void *)cur_part);
+	  }
 	} else if (sym->text[0] == 'V') {
-	  log_message(2, "Voice = '%s'\n", &sym->text[2]);
+	  LOG_MESSAGE("Voice = '%s'", &sym->text[2]);
 	  if (primary_voice[0] != '\0') {
 	    if (!strcmp(&sym->text[2], primary_voice)) {
 	      skipping_voice = 0;
@@ -688,7 +703,7 @@ void process_symbol(struct SYMBOL *sym) {
 	    int len = (vptr - sym->text) - 2;
 	    strncpy(primary_voice, &sym->text[2], (vptr - sym->text) - 2);
 	    primary_voice[len] = '\0';
-	    log_message(2, "Primary Voice = '%s'\n", primary_voice);
+	    LOG_MESSAGE("Primary Voice = '%s'", primary_voice);
 	  }
 	}
       }
@@ -698,16 +713,13 @@ void process_symbol(struct SYMBOL *sym) {
   if (song_finished || skipping_voice)
     return;
 
-  if (sym->text)
-    log_message(2, "sym->text = '%s'\n", sym->text);
-
   if (sym->gch) {
     int repeat = 0;
     const char *name = get_chord_name(sym, &repeat);
     if (name || repeat) {
       if (name)
-	log_message(2, "name = '%s'\n", name);
-      log_message(2, "gch = '%s' (duration=%d, ending=%d)\n", sym->text, duration, ending);
+	LOG_MESSAGE("name = '%s'", name);
+      LOG_MESSAGE("gch='%s' (duration=%d, ending=%d)", sym->text, duration, ending);
       if (duration != 0) {
 	if (cur_chord) {
 	  cur_chord->duration = duration;
@@ -716,34 +728,24 @@ void process_symbol(struct SYMBOL *sym) {
 	  cur_chord->name = previous_chord->name;
 	  cur_chord->duration = duration;
 	} else if (ending && previous_ending_chord) {
-	  log_message(2, "Adding previous_ending_chord\n");
+	  LOG_MESSAGE("Adding previous_ending_chord");
 	  allocate_chord();
 	  cur_chord->name = previous_ending_chord->name;
 	  cur_chord->duration = duration;
 	}
 	if (cur_chord) {
-	  log_message(2, "(a) Adding chord %s to measure %p\n",
+	  LOG_MESSAGE("Adding chord %s to measure %p",
 		      cur_chord->name, cur_measure);
 	}
 	add_chord_to_measure();
-	new_part = 0;
 	duration = 0;
-      } else if (!ending && previous_bar_type != B_RREP) {
-	if (new_part && !empty_part(cur_part)) {
-	  int save_duration = duration;
-	  struct CChord *save_chord = cur_chord;
-	  log_message(2, "(c) Allocating part %c (bar = %s)\n", next_part, bar_type(sym->u.bar.type));
-	  allocate_part();
-	  duration = save_duration;
-	  cur_chord = save_chord;
-	}
       }
       if (repeat) {
-	log_message(2, "prev_chord=%s, cur_chord=%s\n",
+	LOG_MESSAGE("prev_chord=%s, cur_chord=%s",
 		    previous_chord ? previous_chord->name : "",
 		    cur_chord ? cur_chord->name : "");
 	if (ending == 0 && previous_chord) {
-	  log_message(2, "Setting previous_ending_chord to %s\n", previous_chord->name);
+	  LOG_MESSAGE("Setting previous_ending_chord to %s", previous_chord->name);
 	  previous_ending_chord = previous_chord;
 	  previous_chord = NULL;
 	}
@@ -752,7 +754,7 @@ void process_symbol(struct SYMBOL *sym) {
 	previous_chord = NULL;
 	cur_chord->name = allocate_bytes(strlen(name)+1);
 	strcpy(cur_chord->name, name);
-	log_message(2, "new chord %s %s\n", cur_chord->name, repeat ? "repeat" : "");
+	LOG_MESSAGE("new chord %s %s", cur_chord->name, repeat ? "repeat" : "");
       }
     }
   }
@@ -765,45 +767,27 @@ void process_symbol(struct SYMBOL *sym) {
       note_count++;
     }
   } else if (sym->abc_type == ABC_T_BAR) {
-    log_message(2, "bar %s cur=%s prev=%s dur=%d measure_duration=%d repeat_bar=%d\n",
+    LOG_MESSAGE("bar %s cur=%s prev=%s dur=%d measure_duration=%d repeat_bar=%d",
 		bar_type(sym->u.bar.type),
 		cur_chord ? cur_chord->name : "",
 		previous_chord ? previous_chord->name : "", duration,
 		measure_duration, sym->u.bar.repeat_bar);
-    if (cur_chord == NULL && previous_chord && duration >= measure_duration) {
-      cur_chord = previous_chord;
-    }
-    int skip_chord = !ending && cur_part && cur_part->repeat && sym->u.bar.type == B_THIN_THICK;
     if (sym->u.bar.type == B_OBRA && sym->u.bar.repeat_bar) {
       int save_duration = duration;
       struct CChord *save_chord = cur_chord;
-      log_message(2, "(b) Allocate ending\n");
       allocate_ending();
-      duration = save_duration;
-      cur_chord = save_chord;
-    } else if (new_part && !empty_part(cur_part) && !ending && !skip_chord) {
-      int save_duration = duration;
-      struct CChord *save_chord = cur_chord;
-      log_message(2, "(c) Allocating part %c (bar = %s)\n", next_part, bar_type(sym->u.bar.type));
-      allocate_part();
+      LOG_MESSAGE("Allocated ending %d, measure %p", ending, (void *)cur_measure);
       duration = save_duration;
       cur_chord = save_chord;
     }
-    new_part = 0;
     if (duration != 0) {
-      if (ending && cur_measure == NULL) {
-	int save_duration = duration;
-	struct CChord *save_chord = cur_chord;
-	log_message(2, "(c) Allocate ending\n");
-	allocate_ending();
-	duration = save_duration;
-	cur_chord = save_chord;
-      }
       if (cur_chord) {
 	cur_chord->duration = duration;
 	if (sym->u.bar.type == B_RREP) {
-	  log_message(2, "Adding leadin_duration %d\n", leadin_duration);
-	  cur_chord->duration += leadin_duration;
+	  if (cur_measure->duration + cur_chord->duration < measure_duration) {
+	    LOG_MESSAGE("Adding leadin_duration %d", leadin_duration);
+	    cur_chord->duration += leadin_duration;
+	  }
 	  duration = leadin_duration = 0;
 	}
 	// Leadin durtaion
@@ -811,11 +795,12 @@ void process_symbol(struct SYMBOL *sym) {
 	if (tmp_duration < measure_duration &&
 	    (previous_bar_type == 0 ||
 	     (sym->u.bar.type == B_SINGLE && sym->u.bar.dotted == 0 && !ending && cur_measure != NULL))) {
+	  LOG_MESSAGE("Setting leadin_duration to %d", tmp_duration);
 	  leadin_duration = tmp_duration;
-	} else if (!skip_chord) {
+	} else {
 	  if (sym->u.bar.dotted)
 	    cur_chord->broken_bar = 1;
-	  log_message(2, "(b) Adding chord %s to measure %p\n",
+	  LOG_MESSAGE("Adding chord %s to measure %p",
 		      cur_chord->name, cur_measure);
 	  add_chord_to_measure();
 	}
@@ -824,17 +809,14 @@ void process_symbol(struct SYMBOL *sym) {
 	cur_chord->name = previous_chord->name;
 	cur_chord->duration = duration;
 	previous_chord = NULL;
-	log_message(2, "(d) Adding chord %s to measure %p\n",
+	LOG_MESSAGE("Adding chord %s to measure %p",
 		    cur_chord->name, cur_measure);
 	add_chord_to_measure();
-      } else if (duration < measure_duration) {
-	log_message(2, "(b) setting leadin_duration to %d\n", duration);
-	leadin_duration = duration;
       } else if (previous_ending_chord) {
 	allocate_chord();
 	cur_chord->name = previous_ending_chord->name;
 	cur_chord->duration = duration;
-	log_message(2, "(p) Adding chord %s to measure %p\n",
+	LOG_MESSAGE("Adding chord %s to measure %p",
 		    cur_chord->name, cur_measure);
 	add_chord_to_measure();
       }
@@ -847,32 +829,42 @@ void process_symbol(struct SYMBOL *sym) {
 	sym->u.bar.type != B_RREP &&
 	sym->u.bar.dotted == '\0' &&
 	!measure_empty(cur_measure)) {
-      if (cur_measure && cur_measure->duration < measure_duration)
+      if (cur_measure && cur_measure->duration < measure_duration &&
+	  cur_measure == cur_part->measures) {
+	LOG_MESSAGE("Setting measure as leadin (%p)", (void *)cur_measure);
 	cur_measure->leadin = 1;
+      }
       allocate_measure();
-      log_message(2, "(b) Allocated measure %p (bar = %s)\n", cur_measure, bar_type(sym->u.bar.type));
+      LOG_MESSAGE("Allocated measure %p (bar = %s)", cur_measure, bar_type(sym->u.bar.type));
     }
     if (sym->u.bar.type == B_LREP) {
-      log_message(2, "ending = 0\n");
+      LOG_MESSAGE("ending = 0");
       ending = 0;
       previous_ending_chord = NULL;
-      if (previous_bar_type == B_SINGLE) {
-	log_message(2, "(a) new_part = 1\n");
-	new_part = 1;
-      } else if (previous_bar_type == B_RREP || previous_bar_type == B_DOUBLE || previous_bar_type == 0) {
+      if (previous_bar_type) {
+	if (auto_detect_parts && !empty_part(cur_part)) {
+	  allocate_part();
+	  LOG_MESSAGE("Allocated part %s (%p)", cur_part->name, (void *)cur_part);
+	}
 	cur_part->repeat = 1;
       }
     }
     if (sym->u.bar.type == B_DOUBLE) {
-      log_message(2, "(h) ending=%d, repeat=%d\n", ending, cur_part->repeat);
-      if (!ending && cur_part->repeat) {
-	allocate_measure();
-	log_message(2, "(h) Allocated measure %p (bar = %s)\n", cur_measure, bar_type(sym->u.bar.type));
+      LOG_MESSAGE("ending=%d, repeat=%d", ending, cur_part->repeat);
+      if (cur_part->repeat) {
+	if (ending) {
+	  if (auto_detect_parts) {
+	    allocate_part();
+	    LOG_MESSAGE("Allocating part %c (bar = %s)", next_part, bar_type(sym->u.bar.type));
+	    previous_ending_chord = NULL;
+	  }
+	} else {
+	  allocate_measure();
+	  LOG_MESSAGE("Allocated measure %p (bar = %s)", cur_measure, bar_type(sym->u.bar.type));
+	}
       } else {
-	log_message(2, "(b) new_part = 1\n");
-	new_part = 1;
-	ending = 0;
-	previous_ending_chord = NULL;
+	allocate_measure();
+	LOG_MESSAGE("Allocated measure %p (bar = %s)", cur_measure, bar_type(sym->u.bar.type));
       }
     }
     if (sym->u.bar.type == B_RREP) {
@@ -880,13 +872,9 @@ void process_symbol(struct SYMBOL *sym) {
       if (ending == 2 && !measure_empty(cur_measure)) {
 	ending = 0;
 	previous_ending_chord = NULL;
-      } else if (ending) {
-	log_message(2, "(c) new_part = 1\n");
-	new_part = 1;
-	previous_chord = NULL;
-      } else {
-	log_message(2, "(d) new_part = 1\n");
-	new_part = 1;
+      } else if (auto_detect_parts && !ending) {
+	allocate_part();
+	LOG_MESSAGE("Allocating part %c (bar = %s)", next_part, bar_type(sym->u.bar.type));
       }
     }
     previous_bar_type = sym->u.bar.type;
@@ -896,6 +884,7 @@ void process_symbol(struct SYMBOL *sym) {
 	cur_measure->notes = note_count;
 	note_count = 0;
       }
+      cur_measure = NULL;
     }
   }
 }
@@ -940,6 +929,7 @@ int count_ending_measures(struct CMeasure *measure) {
     if (measure->time_signature)
       measure_count++;
   }
+  LOG_MESSAGE("Ending measures = %d", measure_count);
   return measure_count;
 }
 
@@ -1085,6 +1075,7 @@ const char *populate_measure_text(struct CSong* song, struct CMeasure *measure, 
       first_chord = 0;
     }
     next_bar_broken = chord->broken_bar ? 1 : 0;
+    //LOG_MESSAGE("%s (%ld)", text_ptr, text_ptr-text_buf);
     text_ptr += strlen(text_ptr);
   }
   int buf_len = strlen(chords);
@@ -1345,8 +1336,6 @@ void print_song(struct CSong *song) {
     fprintf(chord_out, "<h4%s>%s (%s)</h4>\n", class_attribute, song->title, key);
   }
 
-  log_message(2, "Title: %s\n", song->title);
-
   // Setup parts format structures to point into temporary line memory allocated
   // above
   struct MeasureFormat empty_measure;
@@ -1449,7 +1438,7 @@ void print_song(struct CSong *song) {
 
   for (int i=0; i<max_part; i++) {
     if (parts[i].part->name)
-      fprintf(chord_out, "<span class=\"part-name\">%c</span>&nbsp;&nbsp;", parts[i].part->name);
+      fprintf(chord_out, "<span class=\"part-name\">%s</span>&nbsp;&nbsp;", parts[i].part->name);
     else
       fprintf(chord_out, "<span class=\"part-name\">&nbsp;</span>&nbsp;&nbsp;");
     if (parts[i].part->repeat) {
