@@ -27,6 +27,7 @@ char primary_voice[64];
 char *next_time_signature = NULL;
 int auto_detect_parts = 1;
 char last_note_pitch = 0;
+int new_measure_needed = 0;
 
 struct Auxillary aux = { 0, 0, (char *)0, (char *)0 };
 
@@ -95,6 +96,7 @@ void allocate_song() {
   next_time_signature = NULL;
   auto_detect_parts = 1;
   last_note_pitch = 0;
+  new_measure_needed = 0;
 }
 
 void allocate_part() {
@@ -112,9 +114,11 @@ void allocate_part() {
   cur_part = part;
   cur_measure = NULL;
   previous_chord = NULL;
+  previous_ending_chord = NULL;
   cur_chord = NULL;
   duration = 0;
   leadin_duration = 0;
+  LOG_MESSAGE("Setting leadin duration to 0");
   ending = 0;
   cur_part->name = (char *)allocate_bytes(2);
   cur_part->name[0] = next_part++;
@@ -133,6 +137,7 @@ void allocate_measure() {
     allocate_part();
     LOG_MESSAGE("Allocated part %s (%p)", cur_part->name, (void *)cur_part);
   }
+  new_measure_needed = 0;
   if (cur_measure != NULL) {
     if (cur_measure->chords == NULL)
       return;
@@ -466,6 +471,21 @@ const char *abc_type(struct SYMBOL *sym) {
   return abc_type_buf;
 }
 
+int abc_type_is_meta(struct SYMBOL *sym) {
+  switch (sym->abc_type) {
+  case(ABC_T_INFO):
+  case(ABC_T_PSCOM):
+  case(ABC_T_CLEF):
+  case(ABC_T_EOLN):
+  case(ABC_T_V_OVER):
+    return 1;
+  default:
+    break;
+  }
+  return 0;
+}
+
+
 const char *diminished = "&#x05AF;";
 char g_tmp_chord_buf[256];
 const char *clean_chord(const char *text) {
@@ -566,16 +586,20 @@ const char *clean_chord(const char *text) {
 }
 
 char g_chord_buf[256];
-const char *get_chord_name(struct SYMBOL *sym, int *repeatp) {
+const char *get_chord_name(struct SYMBOL *sym, int *repeatp, int *dal_segno) {
   char tmp_buf[256];
   char *tptr = tmp_buf;
   char *parts[MAXGCH];
   int part_index = 0;
+  *dal_segno = 0;
   for (struct gch *gch = sym->gch; gch->type; gch++) {
     int idx = gch->idx;
     if (gch->type == 'r')
       *repeatp = 1;
     LOG_MESSAGE("chord_name = '%s'", &sym->text[idx]);
+    if (strstr(&sym->text[idx], "D.S.")) {
+      *dal_segno = 1;
+    }
     if (sym->text[idx] == '?' || sym->text[idx] == '@' ||
 	sym->text[idx] == '<' || sym->text[idx] == '>' ||
 	sym->text[idx] == '^' || sym->text[idx] == '_' ||
@@ -675,8 +699,9 @@ void process_symbol(struct SYMBOL *sym) {
 	    }
 	  }
 	} else if (sym->text[0] == 'M') {
-	  if (cur_measure == NULL)
+	  if (cur_measure == NULL) {
 	    allocate_measure();
+	  }
 	  char *time_signature = &sym->text[2];
 	  if (!strcmp(time_signature, "C")) {
 	    time_signature = "4/4";
@@ -694,6 +719,7 @@ void process_symbol(struct SYMBOL *sym) {
 	  // If current measure is still being populated, add time signature
 	  if (cur_measure != NULL && cur_measure->finished != 1 && cur_measure->time_signature == NULL) {
 	    cur_measure->time_signature = next_time_signature;
+	    LOG_MESSAGE("Setting next ts to NULL");
 	    next_time_signature = NULL;
 	  }
 	  int l1, l2;
@@ -705,14 +731,19 @@ void process_symbol(struct SYMBOL *sym) {
 	    if (l_divisor > 1)
 	      measure_duration /= l_divisor;
 	  }
-	} else if (sym->text[0] == 'P' && strcmp(sym->text, "P:W") &&
+	} else if (sym->text[0] == 'P' && strcmp(sym->text, "P:W") && strlen(sym->text) < 5 &&
 		   !(cur_measure && cur_measure->ending && cur_measure->chords == NULL)) {
 	  song_finished = 0;
 	  skipping_voice = 0;
 	  auto_detect_parts = 0;
 	  LOG_MESSAGE("Got %s", sym->text);
 	  if (cur_part && cur_part->measures && cur_part->measures->next == 0) {
-	    LOG_MESSAGE("Renaming current part to '%s'", &sym->text[2]);
+	    LOG_MESSAGE("Renaming current part '%s' to '%s'", cur_part->name, &sym->text[2]);
+	    // hack to handle Elzics Farewell.
+	    if (strcmp(cur_part->name, "Z") == 0 && !ending) {
+	      cur_part->measures = cur_part->last_measure = NULL;
+	      cur_measure = NULL;
+	    }
 	    cur_part->name = (char *)allocate_bytes(strlen(&sym->text[2])+1);
 	    strcpy(cur_part->name, &sym->text[2]);
 	  } else {
@@ -741,12 +772,26 @@ void process_symbol(struct SYMBOL *sym) {
     }
   }
 
+  if (abc_type_is_meta(sym)) {
+    return;
+  }
+
   if (song_finished || skipping_voice)
     return;
 
+  if (new_measure_needed) {
+    allocate_measure();
+    LOG_MESSAGE("Allocated measure %p because it was needed", cur_measure);
+  }
+
   if (sym->gch) {
     int repeat = 0;
-    const char *name = get_chord_name(sym, &repeat);
+    int dal_segno = 0;
+    const char *name = get_chord_name(sym, &repeat, &dal_segno);
+    // The following condition is a hack for Ookpik Waltz.  Should probably
+    // create a new part named "D.S." and add chord to that new part
+    if (!ending && dal_segno)
+      return;
     if (name || repeat) {
       if (name)
 	LOG_MESSAGE("name = '%s'", name);
@@ -819,6 +864,7 @@ void process_symbol(struct SYMBOL *sym) {
 	    LOG_MESSAGE("Adding leadin_duration %d", leadin_duration);
 	    cur_chord->duration += leadin_duration;
 	  }
+	  LOG_MESSAGE("Setting leadin duration to 0");
 	  duration = leadin_duration = 0;
 	}
 	// Leadin durtaion
@@ -836,20 +882,32 @@ void process_symbol(struct SYMBOL *sym) {
 	  add_chord_to_measure();
 	}
       } else if (previous_chord) {
-	allocate_chord();
-	cur_chord->name = previous_chord->name;
-	cur_chord->duration = duration;
-	previous_chord = NULL;
-	LOG_MESSAGE("Adding chord %s to measure %p",
-		    cur_chord->name, cur_measure);
-	add_chord_to_measure();
+	if (previous_bar_type != B_RREP) {
+	  allocate_chord();
+	  cur_chord->name = previous_chord->name;
+	  cur_chord->duration = duration;
+	  if (cur_measure->duration + duration + leadin_duration < measure_duration) {
+	    cur_measure->leadin = 1;
+	    leadin_duration = duration;
+	  }
+	  previous_chord = NULL;
+	  LOG_MESSAGE("Adding previous chord %s to %s %p",
+		      cur_chord->name, 
+		      cur_measure->leadin ? "leadin measure" : "measure",
+		      cur_measure);
+	  add_chord_to_measure();
+	}
       } else if (previous_ending_chord) {
 	allocate_chord();
 	cur_chord->name = previous_ending_chord->name;
 	cur_chord->duration = duration;
-	LOG_MESSAGE("Adding chord %s to measure %p",
+	LOG_MESSAGE("Adding previous ending chord %s to measure %p",
 		    cur_chord->name, cur_measure);
 	add_chord_to_measure();
+      }
+      else {
+	LOG_MESSAGE("Setting leadin_duration to %d", duration);
+	leadin_duration = duration;
       }
       duration = 0;
       if (cur_measure != NULL)
@@ -865,8 +923,7 @@ void process_symbol(struct SYMBOL *sym) {
 	LOG_MESSAGE("Setting measure as leadin (%p)", (void *)cur_measure);
 	cur_measure->leadin = 1;
       }
-      allocate_measure();
-      LOG_MESSAGE("Allocated measure %p (bar = %s)", cur_measure, bar_type(sym->u.bar.type));
+      new_measure_needed = 1;
     }
     if (sym->u.bar.type == B_LREP) {
       LOG_MESSAGE("ending = 0");
@@ -890,12 +947,10 @@ void process_symbol(struct SYMBOL *sym) {
 	    previous_ending_chord = NULL;
 	  }
 	} else {
-	  allocate_measure();
-	  LOG_MESSAGE("Allocated measure %p (bar = %s)", cur_measure, bar_type(sym->u.bar.type));
+	  new_measure_needed = 1;
 	}
-      } else {
-	allocate_measure();
-	LOG_MESSAGE("Allocated measure %p (bar = %s)", cur_measure, bar_type(sym->u.bar.type));
+      } else if (cur_measure && cur_measure->duration == measure_duration) {
+	new_measure_needed = 1;
       }
     }
     if (sym->u.bar.type == B_RREP) {
@@ -903,12 +958,20 @@ void process_symbol(struct SYMBOL *sym) {
       if (ending == 2 && !measure_empty(cur_measure)) {
 	ending = 0;
 	previous_ending_chord = NULL;
-      } else if (auto_detect_parts && !ending) {
+      } else if (!ending && auto_detect_parts) {
 	allocate_part();
 	LOG_MESSAGE("Allocating part %c (bar = %s)", next_part, bar_type(sym->u.bar.type));
       }
+    } else if (sym->u.bar.type == B_DREP) {
+      cur_part->repeat = 1;
+      allocate_part();
+      LOG_MESSAGE("Allocating part %c (bar = %s)", next_part, bar_type(sym->u.bar.type));
+      cur_part->repeat = 1;
     }
     previous_bar_type = sym->u.bar.type;
+    if (!ending && (cur_measure == NULL || cur_measure->chords) && sym->u.bar.dotted == 0) {
+      new_measure_needed = 1;
+    }
     if (sym->u.bar.type == B_THIN_THICK) {
       song_finished = 1;
       if (cur_measure) {
