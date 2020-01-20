@@ -555,7 +555,7 @@ const char *clean_chord(const char *text) {
     // Lowercase everything after chord name
     char *p = &g_tmp_chord_buf[index+1];
     while (*p) {
-      if (isupper(*p))
+      if (isupper(*p) && *(p-1) != '(')
 	*p = tolower(*p);
       p++;
     }
@@ -563,7 +563,8 @@ const char *clean_chord(const char *text) {
     if (strstr(p, "maj") == NULL && strstr(p, "min") == NULL &&
 	strstr(p, "dim") == NULL && strstr(p, "aug") == NULL) {
       for (p = &g_tmp_chord_buf[index+1]; *p; p++) {
-	if (*p != 'm' && *p != '#' && *p != '(' && *p != ')' && !isdigit(*p) && (*p < 'a' || *p > 'g')) {
+	if (*p != 'm' && *p != '#' && *p != '(' && *p != ')' && !isdigit(*p) &&
+	    !((*p >= 'a' && *p <= 'g') || (*p >= 'A' && *p <= 'G'))) {
 	  g_tmp_chord_buf[0] = '\0';
 	  break;
 	}
