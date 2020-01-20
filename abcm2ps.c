@@ -928,8 +928,8 @@ int main(int argc, char **argv)
 					      aux.title = strdup(*(argv+1));
 					      argv++;
 					      argc--;
-					    } else if (strcmp(*argv, "song-title-format") == 0) {
-					      aux.song_title_format = strdup(*(argv+1));
+					    } else if (strcmp(*argv, "song-title-suffix") == 0) {
+					      aux.song_title_suffix = strdup(*(argv+1));
 					      argv++;
 					      argc--;
 					    } else if (strcmp(*argv, "chords-index-keysignature") == 0) {

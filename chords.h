@@ -3,6 +3,7 @@ struct CChord {
   char *name;
   int duration;
   int broken_bar;
+  int diminished;
   struct CChord *next;
 };
 
@@ -34,6 +35,7 @@ struct CPart {
 
 struct CSong {
   char *title;
+  char *composer;
   char key;
   char key_signature;
   int accidental;
@@ -41,6 +43,8 @@ struct CSong {
   int mode;
   char *time_signature;
   int meter_change;
+  int measure_duration;
+  int beat_duration;
   int index;
   char longest_intervals[MAX_LONGEST_INTERVALS];
   struct CPart *parts;

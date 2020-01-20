@@ -85,6 +85,7 @@ void allocate_song() {
   meter_num = 0;
   meter_denom = 0;
   measure_duration = BASE_LEN;
+  cur_song->measure_duration = BASE_LEN;
   duration = 0;
   note_count = 0;
   leadin_duration = 0;
@@ -486,11 +487,12 @@ int abc_type_is_meta(struct SYMBOL *sym) {
 }
 
 
-const char *diminished = "&#x05AF;";
+const char *DIMINISHED = "&#x05AF;";
 char g_tmp_chord_buf[256];
-const char *clean_chord(const char *text) {
+const char *clean_chord(const char *text, int *diminished) {
   char *bufp = g_tmp_chord_buf;
   memset(g_tmp_chord_buf, 0, 256);
+  *diminished = 0;
 
   // Strip whitespace and convert sharp/flat codes
   for (const char *textp = text; *textp && *textp != '\n'; textp++) {
@@ -575,11 +577,12 @@ const char *clean_chord(const char *text) {
   // Replaced "dim" with symbol
   bufp = strstr(g_tmp_chord_buf, "dim");
   if (bufp) {
+    *diminished = 1;
     char temp_buf[256];
     strcpy(temp_buf, g_tmp_chord_buf);
     temp_buf[bufp-g_tmp_chord_buf] = '\0';
-    strcat(temp_buf, diminished);
     bufp += 3;
+    // copy everything after "dim"
     strcat(temp_buf, bufp);
     strcpy(g_tmp_chord_buf, temp_buf);
   }
@@ -587,7 +590,7 @@ const char *clean_chord(const char *text) {
 }
 
 char g_chord_buf[256];
-const char *get_chord_name(struct SYMBOL *sym, int *repeatp, int *dal_segno) {
+const char *get_chord_name(struct SYMBOL *sym, int *repeatp, int *dal_segno, int *diminished) {
   char tmp_buf[256];
   char *tptr = tmp_buf;
   char *parts[MAXGCH];
@@ -606,7 +609,7 @@ const char *get_chord_name(struct SYMBOL *sym, int *repeatp, int *dal_segno) {
 	sym->text[idx] == '^' || sym->text[idx] == '_' ||
 	sym->text[idx] == '$' || (idx > 0 && sym->text[idx-1] == '^') || isspace(sym->text[idx]))
       continue;
-    const char *clean = clean_chord(&sym->text[gch->idx]);
+    const char *clean = clean_chord(&sym->text[gch->idx], diminished);
     int len = strlen(clean);
     if (len) {
       strcpy(tptr, clean);
@@ -683,6 +686,14 @@ void process_symbol(struct SYMBOL *sym) {
 	    cur_song->title = allocate_bytes(strlen(sym->text));
 	    strcpy(cur_song->title, &sym->text[offset]);
 	  }
+	} else if (sym->text[0] == 'C') {
+	  if (cur_song->composer == NULL) {
+	    int index = 2;
+	    while (isspace(sym->text[index]))
+	      index++;
+	    cur_song->composer = allocate_bytes(strlen(&sym->text[index])+1);
+	    strcpy(cur_song->composer, &sym->text[index]);
+	  }
 	} else if (sym->text[0] == 'K') {
 	  if (strstr(sym->text, "staffscale=0.")) {
 	    song_finished = 1;
@@ -706,6 +717,7 @@ void process_symbol(struct SYMBOL *sym) {
 	    } else {
 	      measure_duration = BASE_LEN / l_divisor;
 	    }
+	    cur_song->measure_duration = measure_duration;
 	  }
 	} else if (sym->text[0] == 'M') {
 	  if (cur_measure == NULL) {
@@ -739,6 +751,8 @@ void process_symbol(struct SYMBOL *sym) {
 	    measure_duration = (BASE_LEN * meter_num) / meter_denom;
 	    if (l_divisor > 1)
 	      measure_duration /= l_divisor;
+	    cur_song->measure_duration = measure_duration;
+	    cur_song->beat_duration = measure_duration / meter_num;
 	  }
 	} else if (sym->text[0] == 'P' && strcmp(sym->text, "P:W") && strlen(sym->text) < 5 &&
 		   !(cur_measure && cur_measure->ending && cur_measure->chords == NULL)) {
@@ -796,7 +810,8 @@ void process_symbol(struct SYMBOL *sym) {
   if (sym->gch) {
     int repeat = 0;
     int dal_segno = 0;
-    const char *name = get_chord_name(sym, &repeat, &dal_segno);
+    int diminished = 0;
+    const char *name = get_chord_name(sym, &repeat, &dal_segno, &diminished);
     // The following condition is a hack for Ookpik Waltz.  Should probably
     // create a new part named "D.S." and add chord to that new part
     if (!ending && dal_segno)
@@ -838,6 +853,7 @@ void process_symbol(struct SYMBOL *sym) {
 	allocate_chord();
 	previous_chord = NULL;
 	cur_chord->name = allocate_bytes(strlen(name)+1);
+	cur_chord->diminished = diminished;
 	strcpy(cur_chord->name, name);
 	LOG_MESSAGE("new chord %s %s", cur_chord->name, repeat ? "repeat" : "");
       }
@@ -1083,8 +1099,8 @@ void ConstructPartFormat(struct CSong *song, struct CPart *part, struct PartForm
   }
 }
 
-int visible_chord_length(const char* chord) {
-  const char *base = chord;
+int visible_chord_length(struct CChord *chord) {
+  const char *base = chord->name;
   int unicode_char_count = 0;
   char *ptr = strstr(base, "&#x");
   while (ptr != NULL) {
@@ -1092,7 +1108,7 @@ int visible_chord_length(const char* chord) {
     base = ptr + 3;
     ptr = strstr(base, "&#x");
   }
-  int vlen = strlen(chord) - (8 * unicode_char_count);
+  int vlen = strlen(chord->name) - (8 * unicode_char_count);
   assert(vlen > 0);
   return vlen;
 }
@@ -1106,8 +1122,8 @@ const char *scale_degree(int index, int is_major) {
 }
 
 char chord_text_buf[256];
-const char *chord_text(const char* chord_name, char key_signature, int* chords_visible_length) {
-  const char *iptr = chord_name;
+const char *chord_text(struct CChord *chord, char key_signature, int* chords_visible_length) {
+  const char *iptr = chord->name;
   char *optr = chord_text_buf;
   if (aux.flag & AUX_FLAG_CHORDS_BY_SCALEDEGREE) {
     while (*iptr) {
@@ -1155,8 +1171,11 @@ const char *chord_text(const char* chord_name, char key_signature, int* chords_v
     *optr = '\0';
     return chord_text_buf;
   }
-  *chords_visible_length += visible_chord_length(chord_name);
-  return chord_name;
+  *chords_visible_length += visible_chord_length(chord);
+  strcpy(chord_text_buf, chord->name);
+  if (chord->diminished)
+    strcat(chord_text_buf, DIMINISHED);
+  return chord_text_buf;
 }
 
 
@@ -1166,7 +1185,7 @@ const char *populate_measure_text(struct CSong* song, struct CMeasure *measure, 
   char *chords = text_ptr;
   *chords_visible_length = 0;
   for (struct CChord *chord = measure->chords; chord != NULL; chord = chord->next) {
-    const char *chord_str = chord_text(chord->name, song->key_signature, chords_visible_length);
+    const char *chord_str = chord_text(chord, song->key_signature, chords_visible_length);
     if (first_chord == 0) {
       if (next_bar_broken)
 	sprintf(text_ptr, "&#x00A6;%s", chord_str);
@@ -1859,7 +1878,7 @@ void generate_complexity_file() {
 
 char *strcpy_irealpro_escape(char *dst, const char *src) {
   while (*src) {
-    if (*src == '=' || *src == '%' || *src == '&' || *src == '?') {
+    if (*src == '=' || *src == '%' || *src == '&' || *src == '?' || *src == '#' || *src == '"') {
       sprintf(dst, "%%%X", *src);
       dst += strlen(dst);
       src++;
@@ -1867,6 +1886,26 @@ char *strcpy_irealpro_escape(char *dst, const char *src) {
       *dst++ = *src++;
     }
   }
+  *dst = '\0';
+  return dst;
+}
+
+char *strcpy_irealpro_chord(char *dst, const char *src) {
+  while (*src) {
+    if (*src == '(') {
+      break;
+    } else if (*src == '=' || *src == '%' || *src == '&' || *src == '?' || *src == '#' || *src == '"') {
+      sprintf(dst, "%%%X", *src);
+      dst += strlen(dst);
+      src++;
+    } else if (*src == 'm') {
+      *dst++ = '-';
+      src++;
+    } else {
+      *dst++ = *src++;
+    }
+  }
+  *dst = '\0';
   return dst;
 }
 
@@ -1886,16 +1925,46 @@ const char *irealpro_convert_timesignature(const char *time_signature) {
   return tsig_buf;
 }
 
+int irealpro_chords_equal(struct CChord *lhs, struct CChord *rhs) {
+  const char *lptr = lhs->name;
+  const char *rptr = rhs->name;
+  while (*lptr && *rptr && *lptr == *rptr) {
+    if (*lptr == '(')
+      break;
+    lptr++;
+    rptr++;
+  }
+  if (*lptr == '\0' || *lptr == '(')
+    lptr = NULL;
+  if (*rptr == '\0' || *rptr == '(')
+    rptr = NULL;
+  if (lptr || rptr)
+    return 0;
+  return lhs->diminished == rhs->diminished;
+}
+
 char song_buf[TEXTBUF_SIZE];
 const char *song_to_irealpro_format(struct CSong *song) {
   char *dst = song_buf;
 
   // Title
+  char *title = dst;
   strcpy_irealpro_escape(dst, song->title);
   dst += strlen(dst);
+  if (aux.song_title_suffix) {
+    *dst++ = ' ';
+    strcpy_irealpro_escape(dst, aux.song_title_suffix);
+    dst += strlen(dst);
+  }
+  LOG_MESSAGE("%s", title);
 
   // Composer
-  strcpy(dst, "=Unknown");
+  *dst++ = '=';
+  if (song->composer && song->composer[0]) {
+    strcpy_irealpro_escape(dst, song->composer);
+  } else {
+    strcpy(dst, "Unknown");
+  }
   dst += strlen(dst);
 
   // Style
@@ -1933,9 +2002,11 @@ const char *song_to_irealpro_format(struct CSong *song) {
   }
 
   char part_name = 'A';
+  char chord_buf[32];
   for (struct CPart *part = song->parts; part != NULL; part = part->next) {
     if (skip_part(part))
       continue;
+    LOG_MESSAGE("Part %s", part->name);
     if (part->repeat) {
       *dst++ = '{';
     } else {
@@ -1944,37 +2015,105 @@ const char *song_to_irealpro_format(struct CSong *song) {
     *dst++ = '*';
     *dst++ = part_name++;
 
-    int first_measure = 1;
+    int measure_count = 0;
+    struct CChord *previous_measure_chord = NULL;
     for (struct CMeasure *measure = part->measures; measure != NULL; measure = measure->next) {
       if (measure->leadin)
 	continue;
+      if (measure_count) {
+	if (measure_count == 4) {
+	  *dst++ = '|';
+	}
+	*dst++ = '|';
+      }
       if (measure->time_signature) {
+	LOG_MESSAGE("Distance = %ld", dst-song_buf);
 	strcpy(dst, irealpro_convert_timesignature(measure->time_signature));
 	dst += strlen(dst);
       }
-      if (first_measure == 0) {
-	*dst++ = '|';
-      } else {
-	first_measure = 0;
-      }
+      struct CChord *current_chord = NULL;
+      int current_chord_duration = 0;
       for (struct CChord *chord = measure->chords; chord != NULL; chord = chord->next) {
-	sprintf(dst, "%s ", chord->name);
-	dst += strlen(dst);
+	//LOG_MESSAGE("Chord %s duration %d", chord->name, chord->duration);
+	if (chord->name[0] == '(') {
+	  if (current_chord == NULL) {
+	    *dst++ = 'x';
+	    current_chord = previous_measure_chord;
+	    current_chord_duration = chord->duration;
+	  }
+	} else {
+	  LOG_MESSAGE("[doug] %s duration=%d beat_duration=%d measure->duration=%d",
+		      chord->name, chord->duration, cur_song->beat_duration, measure->duration);
+
+	  if (current_chord) {
+	    LOG_MESSAGE("chord->name=%s, current_chord->name=%s", chord->name, current_chord->name);
+	    if (irealpro_chords_equal(chord, current_chord)) {
+	      current_chord_duration += chord->duration;
+	    } else {
+	      if (current_chord_duration < cur_song->beat_duration)
+		*dst++ = ',';
+	      else
+		*dst++ = ' ';
+	      strcpy_irealpro_chord(dst, chord->name);
+	      if (chord->diminished) {
+		strcat(dst, "o");
+	      }
+	      dst += strlen(dst);
+	      current_chord = chord;
+	      current_chord_duration = chord->duration;
+	    }
+	  } else {
+	    strcpy_irealpro_chord(dst, chord->name);
+	    if (chord->diminished) {
+	      strcat(dst, "o");
+	    }
+	    dst += strlen(dst);
+	    current_chord = chord;
+	    current_chord_duration = chord->duration;
+	  }
+	}
       }
+      previous_measure_chord = current_chord;
+      LOG_MESSAGE("[doug] measure->duration=%d", measure->duration);
+      if (current_chord->duration >= cur_song->beat_duration)
+	*dst++ = ' ';
+      measure_count++;
     }
+    LOG_MESSAGE("Measure count = %d", measure_count);
+    LOG_MESSAGE("Ending count = %d", part->next_ending);
     for (int i=0; i<part->next_ending; i++) {
+      if (i == 0) {
+	sprintf(dst, "|N%d", i+1);
+      } else {
+	sprintf(dst, "} |N%d", i+1);
+      }
+      dst += strlen(dst);
+      int measure_count = 0;
       for (struct CMeasure *measure = part->endings[i]; measure != NULL; measure = measure->next) {
 	if (measure->leadin)
 	  continue;
-	sprintf(dst, "|N%d", i+1);
-	dst += strlen(dst);
-	for (struct CChord *chord = measure->chords; chord != NULL; chord = chord->next) {
-	  sprintf(dst, "%s ", chord->name);
-	  dst += strlen(dst);
+	if (measure_count) {
+	  *dst++ = '|';
 	}
+	int first = 1;
+	for (struct CChord *chord = measure->chords; chord != NULL; chord = chord->next) {
+	  if (chord->name[0] == '(') {
+	    if (first) {
+	      strcpy_irealpro_chord(dst, previous_measure_chord->name);
+	      dst += strlen(dst);
+	      *dst++ = ' ';
+	    }
+	  } else {
+	    strcpy_irealpro_chord(dst, chord->name);
+	    dst += strlen(dst);
+	    *dst++ = ' ';
+	  }
+	  first = 0;
+	}
+	measure_count++;
       }
     }
-    if (part->repeat) {
+    if (part->next_ending == 0 && part->repeat) {
       strcpy(dst, "} ");
     } else if (part->next == 0) {
       strcpy(dst, "Z ");
@@ -1984,6 +2123,7 @@ const char *song_to_irealpro_format(struct CSong *song) {
     dst += strlen(dst);
   }
   *dst = '\0';
+  assert(dst-song_buf < TEXTBUF_SIZE);
   return song_buf;
 }
 
@@ -2025,7 +2165,7 @@ void generate_irealpro_file() {
     song_count++;
   }
 
-  const char *title = aux.title ? aux.title : "Dummy Title";
+  const char *title = aux.title ? aux.title : (max_song == 1 ? songs[0]->title : "Dummy Title");
   fprintf(chord_out, "=%s\">%s</a>  (%d)<br /></h3><br />", title, title, song_count);
   //<p>Test Song 1<br/>Test Song 2<br/></p>
 
