@@ -614,6 +614,14 @@ const char *get_chord_name(struct SYMBOL *sym, int *repeatp, int *dal_segno) {
       tptr += strlen(clean) + 1;
     }
   }
+  // Move parenthetical chord to after primary chord
+  if (part_index > 1) {
+    if (parts[part_index-1][0] == '(') {
+      char *tmp_part = parts[part_index-1];
+      parts[part_index-1] = parts[part_index-2];
+      parts[part_index-2] = tmp_part;
+    }
+  }
   if (part_index > 0) {
     g_chord_buf[0] = '\0';
     for (; part_index > 0; part_index--) {
