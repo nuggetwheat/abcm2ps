@@ -1897,7 +1897,7 @@ char *strcpy_irealpro_escape(char *dst, const char *src) {
 
 char *strcpy_irealpro_chord(char *dst, const char *src) {
   while (*src) {
-    if (*src == '(') {
+    if (*src == '(' || *src == '/') {
       break;
     } else if (*src == '=' || *src == '%' || *src == '&' || *src == '?' || *src == '#' || *src == '"') {
       sprintf(dst, "%%%X", *src);
@@ -1939,9 +1939,9 @@ int irealpro_chords_equal(struct CChord *lhs, struct CChord *rhs) {
     lptr++;
     rptr++;
   }
-  if (*lptr == '\0' || *lptr == '(')
+  if (*lptr == '\0' || *lptr == '(' || *lptr == '/')
     lptr = NULL;
-  if (*rptr == '\0' || *rptr == '(')
+  if (*rptr == '\0' || *rptr == '(' || *rptr == '(')
     rptr = NULL;
   if (lptr || rptr)
     return 0;
@@ -2017,8 +2017,10 @@ const char *song_to_irealpro_format(struct CSong *song) {
     } else {
       *dst++ = '[';
     }
-    *dst++ = '*';
-    *dst++ = part_name++;
+    if (part->name && part->name[0]) {
+      *dst++ = '*';
+      *dst++ = part_name++;
+    }
 
     int measure_count = 0;
     struct CChord *previous_measure_chord = NULL;
@@ -2045,6 +2047,8 @@ const char *song_to_irealpro_format(struct CSong *song) {
 	    *dst++ = 'x';
 	    current_chord = previous_measure_chord;
 	    current_chord_duration = chord->duration;
+	  } else {
+	    current_chord_duration += chord->duration;
 	  }
 	} else {
 	  LOG_MESSAGE("[doug] %s duration=%d beat_duration=%d measure->duration=%d",
@@ -2057,8 +2061,12 @@ const char *song_to_irealpro_format(struct CSong *song) {
 	    } else {
 	      if (current_chord_duration < cur_song->beat_duration)
 		*dst++ = ',';
-	      else
-		*dst++ = ' ';
+	      else {
+		LOG_MESSAGE("[judd] chord->name=%s, current_chord_duration=%d, cur_song->beat_duration=%d", chord->name, current_chord_duration, cur_song->beat_duration);
+		for (int remaining=current_chord_duration; remaining > 0; remaining -= cur_song->beat_duration) {
+		  *dst++ = ' ';
+		}
+	      }
 	      strcpy_irealpro_chord(dst, chord->name);
 	      if (chord->diminished) {
 		strcat(dst, "o");
