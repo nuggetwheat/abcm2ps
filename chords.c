@@ -955,9 +955,14 @@ void process_symbol(struct SYMBOL *sym) {
       ending = 0;
       previous_ending_chord = NULL;
       if (previous_bar_type) {
-	if (auto_detect_parts && !empty_part(cur_part)) {
-	  allocate_part();
-	  LOG_MESSAGE("Allocated part %s (%p)", cur_part->name, (void *)cur_part);
+	if (!empty_part(cur_part)) {
+	  if (auto_detect_parts) {
+	    allocate_part();
+	    LOG_MESSAGE("Allocated part %s (%p)", cur_part->name, (void *)cur_part);
+	  } else {
+	    allocate_named_part("");
+	    LOG_MESSAGE("Allocated part %s (%p)", cur_part->name, (void *)cur_part);
+	  }
 	}
 	cur_part->repeat = 1;
       }
