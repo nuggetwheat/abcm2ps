@@ -1927,6 +1927,8 @@ const char *irealpro_convert_timesignature(const char *time_signature) {
     }
   }
   *dst = '\0';
+  if (strcmp(tsig_buf, "T12") == 0)
+    strcpy(tsig_buf, "T24");
   return tsig_buf;
 }
 
@@ -2041,7 +2043,6 @@ const char *song_to_irealpro_format(struct CSong *song) {
       struct CChord *current_chord = NULL;
       int current_chord_duration = 0;
       for (struct CChord *chord = measure->chords; chord != NULL; chord = chord->next) {
-	//LOG_MESSAGE("Chord %s duration %d", chord->name, chord->duration);
 	if (chord->name[0] == '(') {
 	  if (current_chord == NULL) {
 	    *dst++ = 'x';
@@ -2053,7 +2054,6 @@ const char *song_to_irealpro_format(struct CSong *song) {
 	} else {
 	  LOG_MESSAGE("[doug] %s duration=%d beat_duration=%d measure->duration=%d",
 		      chord->name, chord->duration, cur_song->beat_duration, measure->duration);
-
 	  if (current_chord) {
 	    LOG_MESSAGE("chord->name=%s, current_chord->name=%s", chord->name, current_chord->name);
 	    if (irealpro_chords_equal(chord, current_chord)) {
@@ -2062,7 +2062,6 @@ const char *song_to_irealpro_format(struct CSong *song) {
 	      if (current_chord_duration < cur_song->beat_duration)
 		*dst++ = ',';
 	      else {
-		LOG_MESSAGE("[judd] chord->name=%s, current_chord_duration=%d, cur_song->beat_duration=%d", chord->name, current_chord_duration, cur_song->beat_duration);
 		for (int remaining=current_chord_duration; remaining > 0; remaining -= cur_song->beat_duration) {
 		  *dst++ = ' ';
 		}
