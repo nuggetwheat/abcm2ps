@@ -159,6 +159,7 @@ void allocate_measure() {
     cur_measure->time_signature = next_time_signature;
     next_time_signature = NULL;
   }
+  cur_measure->beats = meter_num;
 }
 
 void allocate_ending() {
@@ -175,6 +176,14 @@ void allocate_ending() {
   ending++;
   previous_chord = NULL;
   cur_chord = NULL;
+  next_time_signature = NULL;
+#if 0
+  if (next_time_signature != NULL) {
+    cur_measure->time_signature = next_time_signature;
+    next_time_signature = NULL;
+  }
+#endif
+  cur_measure->beats = meter_num;
 }
 
 void allocate_chord() {
@@ -751,8 +760,14 @@ void process_symbol(struct SYMBOL *sym) {
 	    measure_duration = (BASE_LEN * meter_num) / meter_denom;
 	    if (l_divisor > 1)
 	      measure_duration /= l_divisor;
-	    cur_song->measure_duration = measure_duration;
-	    cur_song->beat_duration = measure_duration / meter_num;
+	    if (cur_song->measure_duration == 0 || cur_song->beat_duration == 0) {
+	      cur_song->measure_duration = measure_duration;
+	      cur_song->beat_duration = measure_duration / meter_num;
+	      cur_song->beats_per_measure = meter_num;
+	    }
+	    if (measure_empty(cur_measure) || cur_measure->beats == 0) {
+	      cur_measure->beats = meter_num;
+	    }
 	  }
 	} else if (sym->text[0] == 'P' && strcmp(sym->text, "P:W") && strlen(sym->text) < 5 &&
 		   !(cur_measure && cur_measure->ending && cur_measure->chords == NULL)) {
@@ -1883,7 +1898,7 @@ void generate_complexity_file() {
 
 char *strcpy_irealpro_escape(char *dst, const char *src) {
   while (*src) {
-    if (*src == '=' || *src == '%' || *src == '&' || *src == '?' || *src == '#' || *src == '"') {
+    if (*src == '=' || *src == '%' || *src == '&' || *src == '?' || *src == '#' || *src == '"' || *src == '*') {
       sprintf(dst, "%%%X", *src);
       dst += strlen(dst);
       src++;
@@ -1899,12 +1914,14 @@ char *strcpy_irealpro_chord(char *dst, const char *src) {
   while (*src) {
     if (*src == '(' || *src == '/') {
       break;
-    } else if (*src == '=' || *src == '%' || *src == '&' || *src == '?' || *src == '#' || *src == '"') {
+    } else if (*src == '=' || *src == '%' || *src == '&' || *src == '?' || *src == '#' || *src == '"' || *src == '*') {
       sprintf(dst, "%%%X", *src);
       dst += strlen(dst);
       src++;
     } else if (*src == 'm') {
       *dst++ = '-';
+      src++;
+    } else if (isspace(*src)) {
       src++;
     } else {
       *dst++ = *src++;
@@ -1948,6 +1965,129 @@ int irealpro_chords_equal(struct CChord *lhs, struct CChord *rhs) {
   if (lptr || rptr)
     return 0;
   return lhs->diminished == rhs->diminished;
+}
+
+#define MAX_DIVISIONS 64
+
+void print_chord_map(struct CChord **chords, int max) {
+  char buf[MAX_DIVISIONS+1];
+  for (int i=0; i<max; i++) {
+    if (chords[i])
+      buf[i] = 'X';
+    else
+      buf[i] = '0';
+  }
+  buf[max] = '\0';
+  LOG_MESSAGE("[macon] %s", buf);
+}
+
+void set_run_lengths(int run_length, int *min_run_length, int *max_run_length) {
+  if (run_length == 0)
+    return;
+  if (run_length < *min_run_length)
+    *min_run_length = run_length;
+  if (run_length > *max_run_length)
+    *max_run_length = run_length;
+}
+
+char *irealpro_write_measure(struct CSong *song, struct CMeasure *measure, struct CChord **previous_chord, char *dst) {
+  struct CChord *chords[MAX_DIVISIONS];
+  int unit = song->beat_duration / 4;
+  int max = (measure->duration ? measure->duration : song->measure_duration) / unit;
+  LOG_MESSAGE("[macon] unit=%d, beat_duration=%d, measure->duration=%d, measure->beats=%d, song->measure_duration=%d", unit, song->beat_duration, measure->duration, measure->beats, song->measure_duration);
+  assert(song->beat_duration % 4 == 0);
+  assert(song->measure_duration % unit == 0);
+
+  assert(max % 2 == 0);
+  assert(max <= MAX_DIVISIONS);
+
+  memset(chords, 0, MAX_DIVISIONS*sizeof(struct CChord *));
+  struct CChord *current_chord = NULL;
+  int index = 0;
+  for (struct CChord *chord = measure->chords; chord != NULL; chord = chord->next) {
+    LOG_MESSAGE("[macon] '%s' chord->duration=%d, unit=%d, beat_duration=%d", chord->name, chord->duration, unit, song->beat_duration);
+    assert(chord->duration % unit == 0);
+    if (chord->name[0] == '(') {
+      if (current_chord == NULL) {
+	assert(*previous_chord);
+	current_chord = *previous_chord;
+	chords[index] = current_chord;
+      }
+    } else if (!current_chord || !irealpro_chords_equal(chord, current_chord)) {
+      current_chord = chord;
+      chords[index] = current_chord;
+    }
+    index += chord->duration / unit;
+  }
+
+  int chord_count = 0;
+  int got_chord_count = 0;
+
+  print_chord_map(chords, max);
+  while (max > measure->beats) {
+    int src_index = 0;
+    int dst_index = 0;
+    int run_length = 0;
+    int max_run_length = 0;
+    int min_run_length = max;
+    while (src_index < max) {
+      /*
+      if (chords[src_index+1] != NULL) {
+	LOG_MESSAGE("[weird] %s", song->title);
+      }
+      assert(chords[src_index+1] == NULL);*/
+      if (chords[src_index]) {
+	if (!got_chord_count)
+	  chord_count++;
+	chords[dst_index] = chords[src_index];
+	set_run_lengths(run_length, &min_run_length, &max_run_length);
+	run_length = 1;
+      } else {
+	chords[dst_index] = NULL;
+	run_length++;
+      }
+      src_index += 2;
+      dst_index++;
+    }
+    got_chord_count = 1;
+    if (max % 2)
+      max = (max / 2) + 1;
+    else
+      max /= 2;
+    set_run_lengths(run_length, &min_run_length, &max_run_length);
+    LOG_MESSAGE("[macon] chord_count=%d max=%d run_length=%d min_run_length=%d max_run_length=%d", chord_count, max, run_length, min_run_length, max_run_length);
+    print_chord_map(chords, max);
+    if (max_run_length <= 2 || min_run_length == 1)
+      break;
+  }
+
+  int need_trailing_space = 1;
+  for (int i=0; i<max; i++) {
+    if (i>0) {
+      if (chords[i] && chords[i-1])
+	*dst++ = ',';
+      else if (chords[i] == NULL) {
+	*dst++ = ' ';
+	need_trailing_space = 0;
+      }
+    }
+    if (chords[i]) {
+      LOG_MESSAGE("[macon] Copying chord %s", chords[i]->name);
+      strcpy_irealpro_chord(dst, chords[i]->name);
+      dst += strlen(dst);
+      if (chords[i]->diminished) {
+	*dst++ = 'o';
+      }
+      *previous_chord = chords[i];
+      need_trailing_space = 1;
+      if (chord_count == 1)
+	break;
+    }
+  }
+  if (chord_count == 1 && need_trailing_space)
+    *dst++ = ' ';
+
+  return dst;
 }
 
 char song_buf[TEXTBUF_SIZE];
@@ -2040,55 +2180,7 @@ const char *song_to_irealpro_format(struct CSong *song) {
 	strcpy(dst, irealpro_convert_timesignature(measure->time_signature));
 	dst += strlen(dst);
       }
-      struct CChord *current_chord = NULL;
-      int current_chord_duration = 0;
-      for (struct CChord *chord = measure->chords; chord != NULL; chord = chord->next) {
-	if (chord->name[0] == '(') {
-	  if (current_chord == NULL) {
-	    *dst++ = 'x';
-	    current_chord = previous_measure_chord;
-	    current_chord_duration = chord->duration;
-	  } else {
-	    current_chord_duration += chord->duration;
-	  }
-	} else {
-	  LOG_MESSAGE("[doug] %s duration=%d beat_duration=%d measure->duration=%d",
-		      chord->name, chord->duration, cur_song->beat_duration, measure->duration);
-	  if (current_chord) {
-	    LOG_MESSAGE("chord->name=%s, current_chord->name=%s", chord->name, current_chord->name);
-	    if (irealpro_chords_equal(chord, current_chord)) {
-	      current_chord_duration += chord->duration;
-	    } else {
-	      if (current_chord_duration < cur_song->beat_duration)
-		*dst++ = ',';
-	      else {
-		for (int remaining=current_chord_duration; remaining > 0; remaining -= cur_song->beat_duration) {
-		  *dst++ = ' ';
-		}
-	      }
-	      strcpy_irealpro_chord(dst, chord->name);
-	      if (chord->diminished) {
-		strcat(dst, "o");
-	      }
-	      dst += strlen(dst);
-	      current_chord = chord;
-	      current_chord_duration = chord->duration;
-	    }
-	  } else {
-	    strcpy_irealpro_chord(dst, chord->name);
-	    if (chord->diminished) {
-	      strcat(dst, "o");
-	    }
-	    dst += strlen(dst);
-	    current_chord = chord;
-	    current_chord_duration = chord->duration;
-	  }
-	}
-      }
-      previous_measure_chord = current_chord;
-      LOG_MESSAGE("[doug] measure->duration=%d", measure->duration);
-      if (current_chord->duration >= cur_song->beat_duration)
-	*dst++ = ' ';
+      dst = irealpro_write_measure(song, measure, &previous_measure_chord, dst);
       measure_count++;
     }
     LOG_MESSAGE("Measure count = %d", measure_count);
@@ -2107,21 +2199,12 @@ const char *song_to_irealpro_format(struct CSong *song) {
 	if (measure_count) {
 	  *dst++ = '|';
 	}
-	int first = 1;
-	for (struct CChord *chord = measure->chords; chord != NULL; chord = chord->next) {
-	  if (chord->name[0] == '(') {
-	    if (first) {
-	      strcpy_irealpro_chord(dst, previous_measure_chord->name);
-	      dst += strlen(dst);
-	      *dst++ = ' ';
-	    }
-	  } else {
-	    strcpy_irealpro_chord(dst, chord->name);
-	    dst += strlen(dst);
-	    *dst++ = ' ';
-	  }
-	  first = 0;
+	if (measure->time_signature) {
+	  strcpy(dst, irealpro_convert_timesignature(measure->time_signature));
+	  dst += strlen(dst);
 	}
+	struct CChord *tmp_chord = previous_measure_chord;
+	dst = irealpro_write_measure(song, measure, &tmp_chord, dst);
 	measure_count++;
       }
     }

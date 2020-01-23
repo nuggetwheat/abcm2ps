@@ -9,6 +9,7 @@ struct CChord {
 
 struct CMeasure {
   int duration;
+  int beats;
   int notes;
   int leadin;
   int finished;
@@ -45,6 +46,7 @@ struct CSong {
   int meter_change;
   int measure_duration;
   int beat_duration;
+  int beats_per_measure;
   int index;
   char longest_intervals[MAX_LONGEST_INTERVALS];
   struct CPart *parts;
