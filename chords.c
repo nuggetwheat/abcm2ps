@@ -758,9 +758,9 @@ void process_symbol(struct SYMBOL *sym) {
 	    cur_song->meter_change = 1;
 	  }
 	  // If current measure is still being populated, add time signature
-	  if (cur_measure != NULL && cur_measure->finished != 1 && cur_measure->time_signature == NULL) {
+	  if (measure_empty(cur_measure)) {
 	    cur_measure->time_signature = next_time_signature;
-	    LOG_MESSAGE("Setting next ts to NULL");
+	    LOG_MESSAGE("Setting measure ts to %s and next ts to NULL", next_time_signature);
 	    next_time_signature = NULL;
 	  }
 	  int l1, l2;
@@ -1848,8 +1848,8 @@ void generate_chords_file() {
   fclose(chord_out);
 }
 
-float notes_per_measure(struct CSong *song) {
-  int total_measures = 0;
+float notes_per_beat(struct CSong *song) {
+  int total_beats = 0;
   int total_notes = 0;
   for (struct CPart *part = song->parts; part != NULL; part = part->next) {
     if (skip_part(part))
@@ -1857,19 +1857,19 @@ float notes_per_measure(struct CSong *song) {
     for (struct CMeasure *measure = part->measures; measure != NULL; measure = measure->next) {
       if (measure->leadin)
 	continue;
-      total_measures++;
+      total_beats += measure->beats;
       total_notes += measure->notes;
     }
     for (int i=0; i<part->next_ending; i++) {
       for (struct CMeasure *measure = part->endings[i]; measure != NULL; measure = measure->next) {
 	if (measure->leadin)
 	  continue;
-	total_measures++;
+	total_beats += measure->beats;
 	total_notes += measure->notes;
       }
     }
   }
-  return (float)total_notes / (float)total_measures;
+  return (float)total_notes / (float)total_beats;
 }
 
 void escape_string(const char *str, char *dst) {
@@ -1889,11 +1889,11 @@ void generate_complexity_file() {
   char escaped_title[256];
 
   chord_out = fopen("complexity.csv", "w");
-  fprintf(chord_out, "Key,\"Time\nSignature\",\"Notes Per\nMeasure\",\"Average\nLong Interval\",Title\n");
+  fprintf(chord_out, "Key,\"Time\nSignature\",\"Notes\nPer Beat\",\"Average\nLong Interval\",Title\n");
   for (int index = 0; index < max_song; index++) {
     if (index > 0 && equal_songs(songs[index-1], songs[index]) != 0)
       continue;
-    float npm = notes_per_measure(songs[index]);
+    float npm = notes_per_beat(songs[index]);
     escape_string(songs[index]->title, escaped_title);
     float avg_largest_interval = 0.0;
     for (int i=0; i<MAX_LONGEST_INTERVALS; i++) {
