@@ -23,6 +23,7 @@ int meter_denom = 0;
 int measure_duration = BASE_LEN;
 int skipping_voice = 0;
 int song_finished = 0;
+int hard_finished = 0;
 char primary_voice[64];
 char *next_time_signature = NULL;
 int auto_detect_parts = 1;
@@ -94,6 +95,7 @@ void allocate_song() {
   skipping_voice = 0;
   primary_voice[0] = '\0';
   song_finished = 0;
+  hard_finished = 0;
   next_time_signature = NULL;
   auto_detect_parts = 1;
   last_note_pitch = 0;
@@ -670,7 +672,7 @@ void add_interval(struct SYMBOL *sym) {
 
 void process_symbol(struct SYMBOL *sym) {
 
-  if (sym == NULL)
+  if (hard_finished || sym == NULL)
     return;
 
   LOG_MESSAGE("%s '%s' sflags=0x%x", abc_type(sym), sym->text ? sym->text : "", sym->sflags);
@@ -685,8 +687,17 @@ void process_symbol(struct SYMBOL *sym) {
 	allocate_song();
 	cur_song->index = (int)strtol(&sym->text[2], NULL, 0);
       } else {
-	if (sym->text[0] != 'P' && song_finished)
-	  return;
+	if (song_finished) {
+	  if (sym->text[0] != 'P')
+	    return;
+	  else if (sym->text[2] == 'A') {
+	    // Sometimes abc files contain two versions of the song with the second
+	    // prefixed with "Alternatively, you could play it like this ..."
+	    // This causes the second version to be skipped over.
+	    hard_finished = 1;
+	    return;
+	  }
+	}
 	if (sym->text[0] == 'T') {
 	  if (cur_song->title == NULL) {
 	    int offset = 2;
