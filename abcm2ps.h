@@ -909,9 +909,10 @@ struct Auxillary {
   char *title;
   char *song_title_suffix;
 };
-#define AUX_OUTPUT_CHORDS     0x001
-#define AUX_OUTPUT_COMPLEXITY 0x010
-#define AUX_OUTPUT_IREALPRO   0x100
+#define AUX_OUTPUT_CHORDS     0x0001
+#define AUX_OUTPUT_COMPLEXITY 0x0010
+#define AUX_OUTPUT_IREALPRO   0x0100
+#define AUX_OUTPUT_JSON       0x1000
 #define AUX_FLAG_CHORDS_BY_SCALEDEGREE     0x001
 #define AUX_FLAG_CHORDS_INDEX_KEYSIGNATURE 0x010
 extern struct Auxillary aux;
@@ -919,3 +920,4 @@ void add_chords();
 void generate_chords_file();
 void generate_complexity_file();
 void generate_irealpro_file();
+void generate_json_file();

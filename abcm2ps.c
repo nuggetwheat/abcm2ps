@@ -916,6 +916,8 @@ int main(int argc, char **argv)
 					      aux.output |= AUX_OUTPUT_COMPLEXITY;
 					    } else if (strcmp(*argv, "irealpro") == 0) {
 					      aux.output |= AUX_OUTPUT_IREALPRO;
+					    } else if (strcmp(*argv, "json") == 0) {
+					      aux.output |= AUX_OUTPUT_JSON;
 					    } else {
 					      error(1, NULL, "Unrecognized aux output type: %s", argv);
 					      return EXIT_FAILURE;

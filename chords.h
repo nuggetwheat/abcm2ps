@@ -22,13 +22,19 @@ struct CMeasure {
 
 #define MAX_ENDINGS 4
 
-struct CPart {
-  char *name;
+struct CSection {
   int repeat;
   int next_ending;
   struct CMeasure *measures;
   struct CMeasure *last_measure;
   struct CMeasure *endings[MAX_ENDINGS];
+  struct CSection *next;
+};
+
+struct CPart {
+  char *name;
+  struct CSection *sections;
+  struct CSection *last_section;
   struct CPart *next;
 };
 

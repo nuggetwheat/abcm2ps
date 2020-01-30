@@ -909,5 +909,7 @@ ignore:
 	  generate_complexity_file();
 	if (aux.output & AUX_OUTPUT_IREALPRO)
 	  generate_irealpro_file();
+	if (aux.output & AUX_OUTPUT_JSON)
+	  generate_json_file();
 
 }
