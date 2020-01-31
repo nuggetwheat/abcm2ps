@@ -963,8 +963,10 @@ void process_symbol(struct SYMBOL *sym) {
 	cur_chord->duration = duration;
 	if (sym->u.bar.type == B_RREP) {
 	  if (cur_measure->duration + cur_chord->duration < measure_duration) {
-	    LOG_MESSAGE("Adding leadin_duration %d", leadin_duration);
-	    cur_chord->duration += leadin_duration;
+	    int adjustment = measure_duration - (cur_measure->duration + cur_chord->duration);
+	    LOG_MESSAGE("Adjusting duration of '%s' by %d to meet expected measure "
+			"duration of %d", cur_chord->name, adjustment, measure_duration);
+	    cur_chord->duration += adjustment;
 	  }
 	  LOG_MESSAGE("Setting leadin duration to 0");
 	  duration = leadin_duration = 0;
