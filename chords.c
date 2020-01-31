@@ -969,12 +969,10 @@ void process_symbol(struct SYMBOL *sym) {
 	    cur_chord->broken_bar = 1;
 	  LOG_MESSAGE("Adding chord %s to measure %p previous_bar='%s'",
 		      cur_chord->name, cur_measure, bar_type(previous_bar_type));
-	  /*
-	  if (previous_bar_type == B_RREP && !empty_part(cur_part)) {
+	  if (ending == 0 && previous_bar_type == B_RREP && !empty_part(cur_part)) {
 	    allocate_section();
 	    cur_measure = NULL;
 	  }
-	  */
 	  add_chord_to_measure();
 	}
       } else if (previous_chord) {
@@ -2185,15 +2183,29 @@ char *irealpro_write_measure(struct CSong *song, struct CMeasure *measure, struc
     int max_run_length = 0;
     int min_run_length = max;
     while (src_index < max) {
-      /*
+      // The following 
+      int quantized_src_index = src_index;
       if (chords[src_index+1] != NULL) {
-	LOG_MESSAGE("[weird] %s", song->title);
+	int post_run_length = 0;
+	for (int i=src_index+2; i<max; i++)
+	  post_run_length++;
+	post_run_length /= 2;
+	if (post_run_length > run_length) {
+	  chords[src_index+2] = chords[src_index+1];
+	  chords[src_index+1] = NULL;
+	  LOG_MESSAGE("WARNING chord '%s' quantized forward in '%s'",
+		      chords[src_index+2]->name, song->title);
+	} else {
+	  quantized_src_index++;
+	  LOG_MESSAGE("WARNING chord '%s' quantized backward in '%s'",
+		      chords[quantized_src_index]->name, song->title);
+	}
       }
-      assert(chords[src_index+1] == NULL);*/
-      if (chords[src_index]) {
+      // -- end --
+      if (chords[quantized_src_index]) {
 	if (!got_chord_count)
 	  chord_count++;
-	chords[dst_index] = chords[src_index];
+	chords[dst_index] = chords[quantized_src_index];
 	set_run_lengths(run_length, &min_run_length, &max_run_length);
 	run_length = 1;
       } else {
