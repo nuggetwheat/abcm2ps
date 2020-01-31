@@ -363,7 +363,18 @@ void strip_empty_measures(struct CMeasure **measurep) {
   }
 }
 
-void squash_identical_repeats(struct CSection *section) {
+// Extend length of final chord in measure to make measure match expected duration
+void adjust_final_chord_duration(struct CSong *song, struct CMeasure *measure) {
+  while (measure && measure->next)
+    measure = measure->next;
+  if (measure && measure->duration < song->measure_duration) {
+    LOG_MESSAGE("Extending ending chord '%s' duration in '%s'", measure->last_chord->name, song->title);
+    measure->last_chord->duration += song->measure_duration - measure->duration;
+    measure->duration = song->measure_duration;
+  }
+}
+
+void squash_identical_repeats(struct CSong *song, struct CSection *section) {
 
   strip_empty_measures(&section->measures);
 
@@ -378,6 +389,7 @@ void squash_identical_repeats(struct CSection *section) {
 
   for (int i=0; i<section->next_ending; i++) {
     strip_empty_measures(&section->endings[i]);
+    adjust_final_chord_duration(song, section->endings[i]);
   }
 
   for (int i=1; i<section->next_ending; i++) {
@@ -1843,7 +1855,7 @@ struct CSong **dedup_songs(int *max) {
 	part->next = part->next->next;
       }
       for (struct CSection *section = part->sections; section != NULL; section = section->next) {
-	squash_identical_repeats(section);
+	squash_identical_repeats(song, section);
       }
     }
     songs[index++] = song;
