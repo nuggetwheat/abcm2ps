@@ -2275,13 +2275,13 @@ const char *song_to_irealpro_format(struct CSong *song) {
 
   // Title
   char *title = dst;
+  if (aux.song_title_prefix) {
+    strcpy_irealpro_escape(dst, aux.song_title_prefix);
+    dst += strlen(dst);
+    *dst++ = ' ';
+  }
   strcpy_irealpro_escape(dst, song->title);
   dst += strlen(dst);
-  if (aux.song_title_suffix) {
-    *dst++ = ' ';
-    strcpy_irealpro_escape(dst, aux.song_title_suffix);
-    dst += strlen(dst);
-  }
   LOG_MESSAGE("%s", title);
 
   // Composer

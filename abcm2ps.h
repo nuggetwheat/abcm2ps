@@ -907,7 +907,7 @@ struct Auxillary {
   int output;
   int flag;
   char *title;
-  char *song_title_suffix;
+  char *song_title_prefix;
 };
 #define AUX_OUTPUT_CHORDS     0x0001
 #define AUX_OUTPUT_COMPLEXITY 0x0010
