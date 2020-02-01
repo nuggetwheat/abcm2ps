@@ -2243,14 +2243,31 @@ char *irealpro_write_measure(struct CSong *song, struct CMeasure *measure, struc
       break;
   }
 
-  int need_trailing_space = 1;
+  // Better formatting for 2/2, 3/4 & 6/8 time by rounding measures to 4 slots
+  if (max == 2) {
+    for (int i=2; i<4; i++)
+      chords[i] = NULL;
+    max = 4;
+  } else if (measure->beats == 3) {
+    *dst++ = ' ';
+  } else if (measure->beats == 6) {
+    if (chord_count == 1) {
+      *dst++ = ' ';
+      max = 3;
+    }
+    else if (chord_count == 2 && chords[0] && chords[3]) {
+      chords[2] = chords[3];
+      chords[3] = NULL;
+      max = 4;
+    }
+  }
+
   for (int i=0; i<max; i++) {
     if (i>0) {
       if (chords[i] && chords[i-1])
 	*dst++ = ',';
       else if (chords[i] == NULL) {
 	*dst++ = ' ';
-	need_trailing_space = 0;
       }
     }
     if (chords[i]) {
@@ -2261,13 +2278,8 @@ char *irealpro_write_measure(struct CSong *song, struct CMeasure *measure, struc
 	*dst++ = 'o';
       }
       *previous_chord = chords[i];
-      need_trailing_space = 1;
-      if (chord_count == 1)
-	break;
     }
   }
-  if (chord_count == 1 && need_trailing_space)
-    *dst++ = ' ';
 
   return dst;
 }
@@ -2381,7 +2393,7 @@ const char *song_to_irealpro_format(struct CSong *song) {
 	if (i == 0) {
 	  sprintf(dst, "|N%d", i+1);
 	} else {
-	  sprintf(dst, "} |N%d", i+1);
+	  sprintf(dst, "}|N%d", i+1);
 	}
 	dst += strlen(dst);
 	int measure_count = 0;
@@ -2401,11 +2413,11 @@ const char *song_to_irealpro_format(struct CSong *song) {
 	}
       }
       if (section->next_ending == 0 && section->repeat) {
-	strcpy(dst, "} ");
+	strcpy(dst, "}");
       } else if (section->next == NULL && part->next == NULL) {
-	strcpy(dst, "Z ");
+	strcpy(dst, "Z");
       } else {
-	strcpy(dst, "] ");
+	strcpy(dst, "]");
       }
       dst += strlen(dst);
     }
