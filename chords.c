@@ -723,7 +723,7 @@ void add_interval(struct SYMBOL *sym) {
 
 void process_symbol(struct SYMBOL *sym) {
 
-  if (hard_finished || sym == NULL)
+  if (sym == NULL)
     return;
 
   LOG_MESSAGE("%s '%s' sflags=0x%x", abc_type(sym), sym->text ? sym->text : "", sym->sflags);
@@ -738,6 +738,8 @@ void process_symbol(struct SYMBOL *sym) {
 	allocate_song();
 	cur_song->index = (int)strtol(&sym->text[2], NULL, 0);
       } else {
+	if (hard_finished)
+	  return;
 	if (song_finished) {
 	  if (sym->text[0] != 'P')
 	    return;
@@ -2282,6 +2284,12 @@ const char *song_to_irealpro_format(struct CSong *song) {
   }
   strcpy_irealpro_escape(dst, song->title);
   dst += strlen(dst);
+  // If title ends with ", The" then strip it to prevent irealpro from tacking
+  // it onto the front of the title
+  if (strcmp(dst-5, ", The") == 0) {
+    dst -= 5;
+    *dst = '\0';
+  }
   LOG_MESSAGE("%s", title);
 
   // Composer
