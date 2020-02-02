@@ -2,14 +2,14 @@
 
 ## Overview
 
-This is an extension of abcm2ps that can generate chord listing output.  To
-generate this output, you supply the `--aux-output <mode>` option, where
-`<mode>` can be one of:
-- *chords*  Generates a `chords.html` file containing condensed song chord
+This is an extension of abcm2ps that can generate auxillary chord listing
+output.  To generate this output, you supply the `-aux-output <mode>` option,
+where `<mode>` can be one of:
+- **chords**  Generates a `chords.html` file containing condensed song chord
   listings for ryhthm players
-- *irealpro*  Generates an `irealpro.html` file that can be imported into the
+- **irealpro**  Generates an `irealpro.html` file that can be imported into the
   [iReal Pro app](https://irealpro.com/) to provide backing tracks
-- *complexity*  Generates a `comlexity.csv` file that can be imported into
+- **complexity**  Generates a `comlexity.csv` file that can be imported into
   Excel or Sheets with one row per song and columns containing song complexity
   signals
 
@@ -27,11 +27,7 @@ the following `concat.abc.sh`:
 ```
 #!/bin/bash
 
-PATTERN=
-
-if [ $# -eq  1 ]; then
-    PATTERN="$1"
-fi
+PATTERN="$1"
 
 for f in $PATTERN ; do
     cat $f
@@ -39,7 +35,7 @@ for f in $PATTERN ; do
 done
 ```
 
-The following is an example command line illustrating how it can be used:
+which can be called as follows:
 
 ```
 concat_abc.sh "/Users/doug/personal/music/abc/*/*.abc" > ~/all.abc
@@ -77,8 +73,8 @@ command line for this output mode:
 
 To import the `irealpro.html` file into iReal Pro, double-click on it in the Mac
 Finder App to import it into iReal Pro installed on a mac.  To import it into
-iReal Pro installed on your iPhone or Android device, mail the file to yourself
-as an attachment and then open the attachment on your phone.
+iReal Pro installed on your iPhone or Android device, email the file to yourself
+as an attachment and then open the attachment on your iPhone or Android device.
 
 ### Mode: complexity
 
