@@ -41,7 +41,7 @@ struct CChord *cur_chord = NULL;
 struct CChord *previous_chord = NULL;
 struct CChord *previous_ending_chord = NULL;
 
-#define VERBOSE 1
+//#define VERBOSE 1
 
 #ifdef VERBOSE
 #define LOG_MESSAGE(...) \
