@@ -308,6 +308,22 @@ int equal_songs(struct CSong *left, struct CSong *right) {
   return left_part == right_part;
 }
 
+struct CMeasure *deep_copy_measures(struct CMeasure *measure) {
+  struct CMeasure *last_measure = NULL;
+  struct CMeasure *first_measure = NULL;
+  while (measure) {
+    if (last_measure == NULL)
+      last_measure = first_measure = allocate_bytes(sizeof(struct CMeasure));
+    else {
+      last_measure->next = allocate_bytes(sizeof(struct CMeasure));
+      last_measure = last_measure->next;
+    }
+    memcpy(last_measure, measure, sizeof(struct CMeasure));
+    measure = measure->next;
+  }
+  return first_measure;
+}
+
 void add_chord_to_measure() {
   if (cur_chord == NULL) {
     return;
@@ -1887,10 +1903,73 @@ struct CSong **dedup_songs(int *max) {
   return songs;
 }
 
+void concatenate_ending(struct CSection *section, struct CMeasure *ending) {
+  assert(section->measures);
+  section->last_measure = section->measures;
+  while (section->last_measure->next) {
+    section->last_measure = section->last_measure->next;
+  }
+  section->last_measure->next = ending;
+  while (section->last_measure->next) {
+    section->last_measure = section->last_measure->next;
+  }
+}
+
+// For each section that repeats with say, <n> different endings, replace with
+// sections formed by concatenating each ending onto the measures so that the
+// section expands to <n> non-repeating sections.  This makes the chord listings
+// easier to follow.
+void expand_sections(struct CSong *song) {
+  int expanded = 0;
+  for (struct CPart *part = song->parts; part != NULL; part = part->next) {
+    while (part->next != NULL && empty_part(part->next)) {
+      part->next = part->next->next;
+    }
+    struct CSection *section = part->sections;
+    while (section != NULL) {
+      if (section->next_ending) {
+	expanded = 1;
+	struct CSection *next_section = section->next;
+	struct CSection *expanded_section[8];
+	expanded_section[0] = section;
+	for (int i=1; i<section->next_ending; i++) {
+	  expanded_section[i] = allocate_bytes(sizeof(struct CSection));
+	  memset(expanded_section[i], 0, sizeof(struct CSection));
+	  expanded_section[i]->measures = deep_copy_measures(section->measures);
+	  concatenate_ending(expanded_section[i], section->endings[i]);
+	  section->endings[i] = NULL;
+	  expanded_section[i-1]->next = expanded_section[i];
+	}
+	// Set last section to point to original next section
+	expanded_section[section->next_ending-1]->next = next_section;
+	// Fix up original section
+	concatenate_ending(expanded_section[0], section->endings[0]);
+	// Clear repeat/ending fields in original section
+	section->repeat = 0;
+	section->next_ending = 0;
+	section->endings[0] = NULL;
+	// Advance section pointer to original next section
+	section = next_section;
+      } else {
+	section = section->next;
+      }
+    }
+  }
+  if (expanded) {
+    LOG_MESSAGE("[expanded] Expanded endings of song '%s'", song->title);
+  }
+}
+
 void generate_chords_file() {
 
   int max_song;
   struct CSong **songs = dedup_songs(&max_song);
+
+  if (aux.flag & AUX_FLAG_EXPAND_SECTIONS) {
+    for (int i=0; i<max_song; i++) {
+      expand_sections(songs[i]);
+    }
+  }
 
   chord_out = fopen("chords.html", "w");
 
@@ -1988,7 +2067,6 @@ const char *song_to_json_format(struct CSong *song) {
 void generate_json_file() {
   int max_song;
   struct CSong **songs = dedup_songs(&max_song);
-  char escaped_title[256];
 
   chord_out = fopen("chords.json", "w");
   fprintf(chord_out, "{\n");
@@ -2348,7 +2426,6 @@ const char *song_to_irealpro_format(struct CSong *song) {
   }
 
   char part_name = 'A';
-  char chord_buf[32];
   for (struct CPart *part = song->parts; part != NULL; part = part->next) {
     if (skip_part(part))
       continue;
@@ -2430,7 +2507,6 @@ const char *song_to_irealpro_format(struct CSong *song) {
 void generate_irealpro_file() {
   int max_song;
   struct CSong **songs = dedup_songs(&max_song);
-  char escaped_title[256];
 
   chord_out = fopen("irealpro.html", "w");
 

@@ -938,6 +938,8 @@ int main(int argc, char **argv)
 					      aux.flag |= AUX_FLAG_CHORDS_INDEX_KEYSIGNATURE;
 					    } else if (strcmp(*argv, "chords-by-scaledegree") == 0) {
 					      aux.flag |= AUX_FLAG_CHORDS_BY_SCALEDEGREE;
+					    } else if (strcmp(*argv, "expand-sections") == 0) {
+					      aux.flag |= AUX_FLAG_EXPAND_SECTIONS;
 					    }
 					  } else {
 					    error(1, NULL, "Unrecognized flag: %s", p);
