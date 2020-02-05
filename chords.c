@@ -1553,7 +1553,7 @@ void print_song(struct CSong *song) {
   int max_columns = 8;
   for (int i=0; i<max_section; i++) {
     int measure_count = count_measures_with_endings(song, sections[i].section);
-    if (measure_count == 9 && max_columns != 10) {
+    if ((measure_count % 9) == 0 && max_columns != 10) {
       max_columns = 9;
     } else if  (measure_count % 10 == 0) {
       max_columns = 10;
