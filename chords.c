@@ -274,7 +274,7 @@ int equal_sections(struct CSection *left, struct CSection *right) {
 }
 
 int equal_parts(struct CPart *left, struct CPart *right) {
-  if (left->name != right->name)
+  if (strcmp(left->name, right->name))
     return 0;
   struct CSection *left_section = left->sections;
   struct CSection *right_section = right->sections;
