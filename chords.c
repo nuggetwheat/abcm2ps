@@ -789,7 +789,7 @@ void process_symbol(struct SYMBOL *sym) {
 	  }
 	  if (cur_song->key == '\0')
 	    set_key(sym);
-	  LOG_MESSAGE("Key=%c, Mode=%d, sf=%d", cur_song->key, cur_song->mode, sym->u.key.sf);
+	  LOG_MESSAGE("Key=%c, Minor=%d, Mode=%d, sf=%d", cur_song->key, cur_song->minor, cur_song->mode, sym->u.key.sf);
 	} else if (sym->text[0] == 'L') {
 	  int l1, l2;
 	  const char *p = &sym->text[2];
@@ -2403,13 +2403,18 @@ const char *song_to_irealpro_format(struct CSong *song) {
 
   // Key Signature
   *dst++ = '=';
-  *dst++ = song->key_signature;
+  if (song->minor)
+    *dst++ = song->key;
+  else
+    *dst++ = song->key_signature;
   if (song->accidental == -1)
     *dst++ = 'b';
-  else if (song->accidental == -1) {
+  else if (song->accidental == 1) {
     strcpy_irealpro_escape(dst, "#");
     dst += strlen(dst);
   }
+  if (song->minor)
+    *dst++ = '-';
 
   // Unused
   strcpy(dst, "=n");
