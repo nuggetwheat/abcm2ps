@@ -1832,8 +1832,8 @@ void print_index(struct CSong **original_songs, int max_song) {
 	index++;
       }
     }
-    print_index_key_heading(songs[base], songs[base]->key_signature == 'D' ||
-			    songs[base]->key_signature == 'G');
+    print_index_key_heading(songs[base], songs[base]->key == 'D' ||
+			    songs[base]->key == 'G');
     int third = ((index - base) + 2) / 3;
     int first = base + third;
     int second = first + third;
