@@ -216,7 +216,7 @@ void allocate_chord() {
 }
 
 int equal_chords(struct CChord *left, struct CChord *right) {
-  return strcmp(left->name, right->name) == 0;
+  return strcmp(left->name, right->name) == 0 && left->diminished == right->diminished;
 }
 
 int equal_measures(struct CMeasure *left, struct CMeasure *right) {
@@ -379,14 +379,20 @@ void strip_empty_measures(struct CMeasure **measurep) {
   }
 }
 
+void adjust_chord_duration(struct CSong *song, struct CMeasure *measure) {
+  if (measure->duration < song->measure_duration) {
+    LOG_MESSAGE("Extending ending chord '%s' duration in '%s'", measure->last_chord->name, song->title);
+    measure->last_chord->duration += song->measure_duration - measure->duration;
+    measure->duration = song->measure_duration;
+  }
+}
+
 // Extend length of final chord in measure to make measure match expected duration
 void adjust_final_chord_duration(struct CSong *song, struct CMeasure *measure) {
   while (measure && measure->next)
     measure = measure->next;
-  if (measure && measure->duration < song->measure_duration) {
-    LOG_MESSAGE("Extending ending chord '%s' duration in '%s'", measure->last_chord->name, song->title);
-    measure->last_chord->duration += song->measure_duration - measure->duration;
-    measure->duration = song->measure_duration;
+  if (measure) {
+    adjust_chord_duration(song, measure);
   }
 }
 
@@ -1299,40 +1305,138 @@ const char *chord_text(struct CChord *chord, char key_signature, int* chords_vis
   return chord_text_buf;
 }
 
+int populate_chord_array(struct CMeasure *measure, struct CChord **array) {
+  int index = 0;
+  for (struct CChord *chord = measure->chords; chord != NULL; chord = chord->next) {
+    if (index > 0 && equal_chords(chord, array[index-1]))
+      array[index-1]->duration += chord->duration;
+    else
+      array[index++] = chord;
+  }
+  return index;
+}
+
+int strip_optional_chords(struct CMeasure *measure, struct CChord **array) {
+  int index = 0;
+  for (struct CChord *chord = measure->chords; chord != NULL; chord = chord->next) {
+    if (chord->name[0] == '(' && index != 0) {
+      array[index-1]->duration += chord->duration;
+    } else {
+      if (index > 0) {
+	for (char *ptr = chord->name; *ptr; ptr++) {
+	  if (*ptr == '(' || *ptr == '/') {
+	    *ptr = '\0';
+	    break;
+	  }
+	}
+      }
+      if (index > 0 && equal_chords(chord, array[index-1]))
+	array[index-1]->duration += chord->duration;
+      else
+	array[index++] = chord;
+    }
+  }
+  return index;
+}
+
+int strip_purely_optional_chords(struct CChord **array, int array_len) {
+  int index = 0;
+  for (int i=0; i<array_len; i++) {
+    struct CChord *chord = array[i];
+    if (index > 0 && chord->name[0] == '(') {
+      array[index-1]->duration += chord->duration;
+    } else {
+      array[index++] = chord;
+    }
+  }
+  return index;
+}
+
+int should_align(struct CChord **array, int array_len, int *shortest_duration) {
+  int align = 0;
+  int minimal_duration = array[0]->duration;
+  for (int i=1; i<array_len; i++) {
+    if (array[i]->duration != array[0]->duration) {
+      align = 1;
+      if (array[i]->duration < minimal_duration) {
+	minimal_duration = array[i]->duration;
+      }
+    }
+  }
+  if (align) {
+    for (int i=0; i<array_len; i++) {
+      if (array[0]->duration % minimal_duration != 0) {
+	align = 0;
+	break;
+      }
+    }
+  }
+  if (align) {
+    *shortest_duration = minimal_duration;
+  }
+  return align;
+}
 
 const char *populate_measure_text(struct CSong* song, struct CMeasure *measure, int* chords_visible_length) {
   int first_chord = 1;
   int next_bar_broken = 0;
   char *chords = text_ptr;
   *chords_visible_length = 0;
-  for (struct CChord *chord = measure->chords; chord != NULL; chord = chord->next) {
+
+  if (!song->meter_change) {
+    LOG_MESSAGE("[doug] song->measure_duration=%d measure->duration=%d", song->measure_duration, measure->duration);
+    adjust_chord_duration(song, measure);
+  }
+
+  struct CChord *chord_array[8];
+  int chord_count = populate_chord_array(measure, chord_array);
+  if (chord_count > 2) {
+    chord_count = strip_optional_chords(measure, chord_array);
+  }
+  int duration_alignment;
+  int align = should_align(chord_array, chord_count, &duration_alignment);
+  if (align) {
+    if (chord_count == 2)
+      chord_count = strip_purely_optional_chords(chord_array, chord_count);
+    // If only one chord after stripping optional, no need for alignment
+    if (chord_count == 1)
+      align = 0;
+  }
+
+  //for (struct CChord *chord = measure->chords; chord != NULL; chord = chord->next) {
+  for (int i=0; i<chord_count; i++) {
+    struct CChord *chord = chord_array[i];
     const char *chord_str = chord_text(chord, song->key_signature, chords_visible_length);
-    if (first_chord == 0) {
-      if (next_bar_broken)
-	sprintf(text_ptr, "&#x00A6;%s", chord_str);
-      else
-	sprintf(text_ptr, "|%s", chord_str);
-      (*chords_visible_length)++;
-    } else {
+    if (align) {
       sprintf(text_ptr, "%s", chord_str);
-      first_chord = 0;
+      text_ptr += strlen(text_ptr);
+      if (chord->broken_bar == 0) {
+	int num_bars = chord->duration / duration_alignment;
+	if (i == chord_count-1)
+	  num_bars--;
+	for (int b=0; b<num_bars; b++)
+	  *text_ptr++ = '|';
+	(*chords_visible_length) += num_bars;
+      } else {
+	strcpy(text_ptr, "&#x00A6;");
+	text_ptr += strlen(text_ptr);
+	(*chords_visible_length)++;
+      }
+    } else {
+      if (first_chord == 0) {
+	if (next_bar_broken)
+	  sprintf(text_ptr, "&#x00A6;%s", chord_str);
+	else
+	  sprintf(text_ptr, "|%s", chord_str);
+	(*chords_visible_length)++;
+      } else {
+	sprintf(text_ptr, "%s", chord_str);
+	first_chord = 0;
+      }
+      next_bar_broken = chord->broken_bar ? 1 : 0;
     }
-    next_bar_broken = chord->broken_bar ? 1 : 0;
     //LOG_MESSAGE("%s (%ld)", text_ptr, text_ptr-text_buf);
     text_ptr += strlen(text_ptr);
-  }
-  int buf_len = strlen(chords);
-  // Squash chords in form of A|A
-  if (buf_len > 1 && buf_len % 2 == 1) {
-    int mid = buf_len / 2;
-    if (chords[mid] == '|') {
-      if (!strncmp(chords, &chords[mid+1], mid)) {
-	if (strlen(&chords[mid]) < *chords_visible_length)
-	  *chords_visible_length -= strlen(&chords[mid]);
-	chords[mid] = '\0';
-	text_ptr = &chords[mid];
-      }
-    }
   }
   // skip past trailing '\0'
   text_ptr++;
