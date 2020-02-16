@@ -2053,7 +2053,7 @@ void generate_chords_file() {
   int max_song;
   struct CSong **songs = dedup_songs(&max_song);
 
-  if (aux.flag & AUX_FLAG_EXPAND_SECTIONS) {
+  if ((aux.flag & AUX_FLAG_CHORDS_NO_EXPAND_SECTIONS) == 0) {
     for (int i=0; i<max_song; i++) {
       expand_sections(songs[i]);
     }

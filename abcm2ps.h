@@ -915,7 +915,7 @@ struct Auxillary {
 #define AUX_OUTPUT_JSON       0x1000
 #define AUX_FLAG_CHORDS_BY_SCALEDEGREE     0x001
 #define AUX_FLAG_CHORDS_INDEX_KEYSIGNATURE 0x010
-#define AUX_FLAG_EXPAND_SECTIONS           0x100
+#define AUX_FLAG_CHORDS_NO_EXPAND_SECTIONS 0x100
 extern struct Auxillary aux;
 void add_chords();
 void generate_chords_file();
