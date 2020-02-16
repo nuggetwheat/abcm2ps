@@ -1227,7 +1227,7 @@ const char *scale_degree(int index, int is_major) {
 }
 
 char chord_text_buf[256];
-const char *chord_text(struct CChord *chord, char key_signature, int* chords_visible_length) {
+const char *chord_text(struct CSong* song, struct CChord *chord, int* chords_visible_length) {
   const char *iptr = chord->name;
   char *optr = chord_text_buf;
   if (aux.flag & AUX_FLAG_CHORDS_BY_SCALEDEGREE) {
@@ -1253,6 +1253,7 @@ const char *chord_text(struct CChord *chord, char key_signature, int* chords_vis
 	}
 	(*chords_visible_length)++;
       } else {
+	char key_signature = song->key_signature;
 	int index = (*iptr >= key_signature) ? *iptr - key_signature : (*iptr + 7) - key_signature;
 	assert(index >= 0 && index < 8);
 	iptr++;
@@ -1262,6 +1263,13 @@ const char *chord_text(struct CChord *chord, char key_signature, int* chords_vis
 	int is_minor = 0;
 	if (*iptr && (*iptr == 'm' || (*iptr == 'M' && *(iptr+1) == 'i'))) {
 	  is_minor = 1;
+	}
+	if (*iptr == 'b' && (key_signature == 'A' || key_signature == 'D' || key_signature == 'G')) {
+	  strcpy(optr, "<span class=\"super\" style=\"width: 12px;\">&#9837;</span>");
+	  //strcpy(optr, "&#9837;");
+	  optr += strlen(optr);
+	  (*chords_visible_length)++;
+	  iptr++;
 	}
 	strcpy(optr, scale_degree(index, is_minor == 0));
 	(*chords_visible_length) += strlen(optr);
@@ -1384,7 +1392,7 @@ const char *populate_measure_text(struct CSong* song, struct CMeasure *measure, 
   //for (struct CChord *chord = measure->chords; chord != NULL; chord = chord->next) {
   for (int i=0; i<chord_count; i++) {
     struct CChord *chord = chord_array[i];
-    const char *chord_str = chord_text(chord, song->key_signature, chords_visible_length);
+    const char *chord_str = chord_text(song, chord, chords_visible_length);
     if (align) {
       sprintf(text_ptr, "%s", chord_str);
       text_ptr += strlen(text_ptr);
@@ -1401,7 +1409,7 @@ const char *populate_measure_text(struct CSong* song, struct CMeasure *measure, 
 	(*chords_visible_length)++;
 	// Fix for Texas
 	if (i == chord_count-1) {
-	  const char *chord_str = chord_text(chord, song->key_signature, chords_visible_length);
+	  const char *chord_str = chord_text(song, chord, chords_visible_length);
 	  sprintf(text_ptr, "%s", chord_str);
 	  text_ptr += strlen(text_ptr);
 	}
