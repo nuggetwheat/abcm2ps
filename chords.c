@@ -1399,6 +1399,12 @@ const char *populate_measure_text(struct CSong* song, struct CMeasure *measure, 
 	strcpy(text_ptr, "&#x00A6;");
 	text_ptr += strlen(text_ptr);
 	(*chords_visible_length)++;
+	// Fix for Texas
+	if (i == chord_count-1) {
+	  const char *chord_str = chord_text(chord, song->key_signature, chords_visible_length);
+	  sprintf(text_ptr, "%s", chord_str);
+	  text_ptr += strlen(text_ptr);
+	}
       }
     } else {
       if (first_chord == 0) {
