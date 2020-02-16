@@ -2086,6 +2086,9 @@ void generate_chords_file() {
 
   fprintf(chord_out, "<div style=\"font-family: Arial\">\n");
   fprintf(chord_out, "<h1 style=\"text-align: center;\">%s</h1>\n", aux.title ? aux.title : "[INSERT TITLE HERE]");
+  if (aux.flag & AUX_FLAG_CHORDS_BY_SCALEDEGREE) {
+    fprintf(chord_out, "<h2 style=\"text-align: center;\">(in Scale Degree)</h2>\n");
+  }
   fprintf(chord_out, "<br/>\n<br/>\n");
   print_index(songs, max_song);
   fprintf(chord_out, "</div>\n");  
