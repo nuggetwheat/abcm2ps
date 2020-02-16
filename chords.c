@@ -29,7 +29,7 @@ int auto_detect_parts = 1;
 char last_note_pitch = 0;
 int new_measure_needed = 0;
 
-struct Auxillary aux = { 0, 0, (char *)0, (char *)0 };
+struct Auxillary aux = { 0, 0, (char *)0, (char *)0, '|' };
 
 struct CSong *first_song = NULL;
 struct CSong *cur_song = NULL;
@@ -1401,7 +1401,7 @@ const char *populate_measure_text(struct CSong* song, struct CMeasure *measure, 
 	if (i == chord_count-1)
 	  num_bars--;
 	for (int b=0; b<num_bars; b++)
-	  *text_ptr++ = '|';
+	  *text_ptr++ = aux.divider;
 	(*chords_visible_length) += num_bars;
       } else {
 	strcpy(text_ptr, "&#x00A6;");
@@ -1419,7 +1419,7 @@ const char *populate_measure_text(struct CSong* song, struct CMeasure *measure, 
 	if (next_bar_broken)
 	  sprintf(text_ptr, "&#x00A6;%s", chord_str);
 	else
-	  sprintf(text_ptr, "|%s", chord_str);
+	  sprintf(text_ptr, "%c%s", aux.divider, chord_str);
 	(*chords_visible_length)++;
       } else {
 	sprintf(text_ptr, "%s", chord_str);

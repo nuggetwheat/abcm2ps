@@ -934,6 +934,10 @@ int main(int argc, char **argv)
 					      aux.song_title_prefix = strdup(*(argv+1));
 					      argv++;
 					      argc--;
+					    } else if (strcmp(*argv, "chords-divider") == 0) {
+					      aux.divider = **(argv+1);
+					      argv++;
+					      argc--;
 					    } else if (strcmp(*argv, "chords-index-keysignature") == 0) {
 					      aux.flag |= AUX_FLAG_CHORDS_INDEX_KEYSIGNATURE;
 					    } else if (strcmp(*argv, "chords-by-scaledegree") == 0) {
