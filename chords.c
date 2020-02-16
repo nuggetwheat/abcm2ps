@@ -1763,7 +1763,8 @@ void print_song(struct CSong *song) {
 	    lines[j][i-1]->width == lines[j][i-1]->chords_len) {
 	  // Add extra space for all rows in this column
 	  for (int k=0; k<line_count; k++) {
-	    lines[k][i]->leading_space++;
+	    if (lines[k][i])
+	      lines[k][i]->leading_space++;
 	  }
 	  extra_space--;
 	}
