@@ -17,7 +17,6 @@ int meter_note_length = -1;
 int previous_bar_type = 0;
 int ending = 0;
 FILE *chord_out = NULL;
-int l_divisor = 0;
 int meter_num = 0;
 int meter_denom = 0;
 int measure_duration = BASE_LEN;
@@ -86,7 +85,6 @@ void allocate_song() {
   next_part = 'A';
   unit_note_length = -1;
   meter_note_length = -1;
-  l_divisor = 0;
   meter_num = 0;
   meter_denom = 0;
   measure_duration = BASE_LEN;
@@ -796,24 +794,6 @@ void process_symbol(struct SYMBOL *sym) {
 	  if (cur_song->key == '\0')
 	    set_key(sym);
 	  LOG_MESSAGE("Key=%c, Minor=%d, Mode=%d, sf=%d", cur_song->key, cur_song->minor, cur_song->mode, sym->u.key.sf);
-	} else if (sym->text[0] == 'L') {
-	  int l1, l2;
-	  const char *p = &sym->text[2];
-	  if (sscanf(p, "%d/%d ", &l1, &l2) == 2) {
-	    if (l2 == 16) {
-	      l_divisor = 2;
-	    } else if (l2 == 32) {
-	      l_divisor = 4;
-	    } else {
-	      l_divisor = 1;
-	    }
-	    if (meter_num) {
-	      measure_duration = ((BASE_LEN * meter_num) / meter_denom) / l_divisor;
-	    } else {
-	      measure_duration = BASE_LEN / l_divisor;
-	    }
-	    cur_song->measure_duration = measure_duration;
-	  }
 	} else if (sym->text[0] == 'M') {
 	  if (cur_measure == NULL) {
 	    allocate_measure();
@@ -844,8 +824,6 @@ void process_symbol(struct SYMBOL *sym) {
 	    meter_num = l1;
 	    meter_denom = l2;
 	    measure_duration = (BASE_LEN * meter_num) / meter_denom;
-	    if (l_divisor > 1)
-	      measure_duration /= l_divisor;
 	    if (cur_song->measure_duration == 0 || cur_song->beat_duration == 0) {
 	      cur_song->measure_duration = measure_duration;
 	      cur_song->beat_duration = measure_duration / meter_num;
