@@ -811,6 +811,11 @@ void deco_add(char *s)
 	user_deco = d;
 }
 
+const char *deco_get_name(int ideco) {
+  return deco_def_tb[ideco].name ? deco_def_tb[ideco].name : "";
+}
+
+
 static int get_deco(char *name)
 {
 	struct deco_def_s *dd;

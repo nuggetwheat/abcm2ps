@@ -777,6 +777,7 @@ void deco_add(char *text);
 void deco_cnv(struct decos *dc, struct SYMBOL *s, struct SYMBOL *prev);
 void deco_update(struct SYMBOL *s, float dx);
 float deco_width(struct SYMBOL *s);
+const char *deco_get_name(int ideco);
 void draw_all_deco(void);
 //int draw_deco_head(int deco, float x, float y, int stem);
 void draw_deco_near(void);

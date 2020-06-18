@@ -28,6 +28,7 @@ char *next_time_signature = NULL;
 int auto_detect_parts = 1;
 char last_note_pitch = 0;
 int new_measure_needed = 0;
+int measure_meta = 0;
 
 struct Auxillary aux = { 0, 0, (char *)0, (char *)0, '|' };
 
@@ -40,7 +41,13 @@ struct CChord *cur_chord = NULL;
 struct CChord *previous_chord = NULL;
 struct CChord *previous_ending_chord = NULL;
 
-//#define VERBOSE 1
+#define DECO_SEGNO         0x00000001
+#define DECO_CODA          0x00000002
+#define MARKER_FINE        0x00010000
+#define MARKER_DS_AL_FINE  0x00020000
+#define MARKER_DS_AL_CODA  0x00040000
+
+#define VERBOSE 1
 
 #ifdef VERBOSE
 #define LOG_MESSAGE(...) \
@@ -102,6 +109,7 @@ void allocate_song() {
   auto_detect_parts = 1;
   last_note_pitch = 0;
   new_measure_needed = 0;
+  measure_meta = 0;
 }
 
 void allocate_part() {
@@ -175,6 +183,8 @@ void allocate_measure() {
     cur_measure->next = measure;
   }
   cur_measure = measure;
+  cur_measure->meta = measure_meta;
+  measure_meta = 0;
   cur_section->last_measure = measure;
   if (next_time_signature != NULL) {
     cur_measure->time_signature = next_time_signature;
@@ -243,6 +253,19 @@ int equal_measure_sequence(struct CMeasure *left, struct CMeasure *right) {
     right = right->next;
   }
   return left == right;
+}
+
+int copy_meta(struct CMeasure *left, struct CMeasure *right) {
+  int meta = 0;
+  while (left != NULL && right != NULL) {
+    if (left->meta || right->meta) {
+      left->meta = right->meta = (left->meta | right->meta);
+      meta = (left->meta | right->meta);
+    }
+    left = left->next;
+    right = right->next;
+  }
+  return meta;
 }
 
 int equal_sections(struct CSection *left, struct CSection *right) {
@@ -400,7 +423,6 @@ void squash_identical_repeats(struct CSong *song, struct CSection *section) {
 
   if (section->next_ending == 0)
     return;
-  section->repeat = 1;
 
   // reset last measure
   section->last_measure = section->measures;
@@ -412,13 +434,18 @@ void squash_identical_repeats(struct CSong *song, struct CSection *section) {
     adjust_final_chord_duration(song, section->endings[i]);
   }
 
+  int meta = 0;
   for (int i=1; i<section->next_ending; i++) {
     if (section->endings[i] == NULL)  // should be corrected above
       continue;
     if (equal_measure_sequence(section->endings[0], section->endings[i]) == 0) {
       return;
     }
+    meta |= copy_meta(section->endings[0], section->endings[i]);
   }
+  // Repeat if endings do not include D.S.
+  if ((meta & (MARKER_DS_AL_FINE | MARKER_DS_AL_CODA)) == 0)
+    section->repeat = 1;
   section->last_measure->next = section->endings[0];
   memset(section->endings, 0, MAX_ENDINGS*sizeof(struct CMeasure *));
   section->next_ending = 0;
@@ -672,19 +699,26 @@ const char *clean_chord(const char *text, int *diminished) {
 }
 
 char g_chord_buf[256];
-const char *get_chord_name(struct SYMBOL *sym, int *repeatp, int *dal_segno, int *diminished) {
+const char *get_chord_name(struct SYMBOL *sym, int *repeatp, int *meta, int *diminished) {
   char tmp_buf[256];
   char *tptr = tmp_buf;
   char *parts[MAXGCH];
   int part_index = 0;
-  *dal_segno = 0;
+  *meta = 0;
   for (struct gch *gch = sym->gch; gch->type; gch++) {
     int idx = gch->idx;
     if (gch->type == 'r')
       *repeatp = 1;
     LOG_MESSAGE("chord_name = '%s'", &sym->text[idx]);
     if (strstr(&sym->text[idx], "D.S.")) {
-      *dal_segno = 1;
+      if (strcasestr(&sym->text[idx], "coda")) {
+	*meta |= MARKER_DS_AL_CODA;
+      } else {
+	*meta |= MARKER_DS_AL_FINE;
+      }
+    }
+    if (strstr(&sym->text[idx], "FINE")) {
+      *meta |= MARKER_FINE;
     }
     if (sym->text[idx] == '?' || sym->text[idx] == '@' ||
 	sym->text[idx] == '<' || sym->text[idx] == '>' ||
@@ -888,16 +922,17 @@ void process_symbol(struct SYMBOL *sym) {
 
   if (sym->gch) {
     int repeat = 0;
-    int dal_segno = 0;
+    int meta = 0;
     int diminished = 0;
-    const char *name = get_chord_name(sym, &repeat, &dal_segno, &diminished);
+    const char *name = get_chord_name(sym, &repeat, &meta, &diminished);
+    LOG_MESSAGE("name = '%s', repeat = %d, meta=0x%x, diminished=%d", name, repeat, meta, diminished);
     // The following condition is a hack for Ookpik Waltz.  Should probably
     // create a new part named "D.S." and add chord to that new part
-    if (!ending && dal_segno)
+    if (!ending && (meta & MARKER_DS_AL_FINE))
       return;
     if (name || repeat) {
       if (name)
-	LOG_MESSAGE("name = '%s'", name);
+	LOG_MESSAGE("name = '%s', repeat = %d", name, repeat);
       LOG_MESSAGE("gch='%s' (duration=%d, ending=%d)", sym->text, duration, ending);
       if (duration != 0) {
 	if (cur_chord) {
@@ -937,6 +972,13 @@ void process_symbol(struct SYMBOL *sym) {
 	LOG_MESSAGE("new chord %s %s", cur_chord->name, repeat ? "repeat" : "");
       }
     }
+    if (meta) {
+      if (cur_measure) {
+	cur_measure->meta |= meta;
+      } else {
+	LOG_MESSAGE("WARNING: Found meta 0x%x without current measure", meta);
+      }
+    }
   }
 
   if (sym->abc_type == ABC_T_NOTE || sym->abc_type == ABC_T_REST) {
@@ -947,6 +989,22 @@ void process_symbol(struct SYMBOL *sym) {
       note_count++;
     }
   } else if (sym->abc_type == ABC_T_BAR) {
+    for (int i=0; i<(int)sym->u.bar.dc.n; i++) {
+      LOG_MESSAGE("deco: %s", deco_get_name(sym->u.bar.dc.tm[i].t));
+      if (strcmp(deco_get_name(sym->u.bar.dc.tm[i].t), "segno") == 0) {
+	if (cur_measure) {
+	  cur_measure->meta |= DECO_SEGNO;
+	} else {
+	  measure_meta |= DECO_SEGNO;
+	}
+      } else if (strcmp(deco_get_name(sym->u.bar.dc.tm[i].t), "coda") == 0) {
+	if (cur_measure) {
+	  cur_measure->meta |= DECO_CODA;
+	} else {
+	  measure_meta |= DECO_CODA;
+	}
+      }
+    }
     LOG_MESSAGE("bar %s cur=%s prev=%s dur=%d measure_duration=%d repeat_bar=%d",
 		bar_type(sym->u.bar.type),
 		cur_chord ? cur_chord->name : "",
@@ -2340,6 +2398,8 @@ char *irealpro_write_measure(struct CSong *song, struct CMeasure *measure, struc
   struct CChord *chords[MAX_DIVISIONS];
   int unit = song->beat_duration / 4;
   int max = (measure->duration ? measure->duration : song->measure_duration) / unit;
+  int meta = measure->meta;
+  LOG_MESSAGE("meta = 0x%x", meta);
   LOG_MESSAGE("[macon] unit=%d, beat_duration=%d, measure->duration=%d, measure->beats=%d, song->measure_duration=%d", unit, song->beat_duration, measure->duration, measure->beats, song->measure_duration);
   assert(song->beat_duration % 4 == 0);
   assert(song->measure_duration % unit == 0);
@@ -2595,13 +2655,12 @@ const char *song_to_irealpro_format(struct CSong *song) {
 	}
       }
       if (section->next_ending == 0 && section->repeat) {
-	strcpy(dst, "}");
+	*dst++ = '}';
       } else if (section->next == NULL && part->next == NULL) {
-	strcpy(dst, "Z");
+	*dst++ = 'Z';
       } else {
-	strcpy(dst, "]");
+	*dst++ = ']';
       }
-      dst += strlen(dst);
     }
   }
   *dst = '\0';

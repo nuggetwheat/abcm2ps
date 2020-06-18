@@ -14,6 +14,7 @@ struct CMeasure {
   int leadin;
   int finished;
   int ending;
+  int meta;
   char *time_signature;
   struct CChord *chords;
   struct CChord *last_chord;
